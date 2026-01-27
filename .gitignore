@@ -1,0 +1,102 @@
+############################
+# Python / Environment
+############################
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+
+.venv/
+venv/
+env/
+ENV/
+
+############################
+# Jupyter
+############################
+.ipynb_checkpoints/
+
+############################
+# OS / IDE
+############################
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*.swo
+
+############################
+# Caches
+############################
+.cache/
+**/.cache/
+pip-wheel-metadata/
+*.log
+
+############################
+# Experiment tracking
+############################
+wandb/
+runs/
+mlruns/
+tensorboard/
+tb_logs/
+
+############################
+# Data (raw & processed)
+############################
+data/raw/**
+data/processed/**
+data/**/cache/**
+data/**/tmp/**
+
+# Оставляем только метаданные
+!data/dataset_meta.json
+!data/processed_meta.json
+
+############################
+# Models & Checkpoints
+############################
+models/**
+exports/**
+onnx/**
+tmp_merged_lora/**
+
+# Если хочешь оставить структуру папок:
+!models/.gitkeep
+!exports/.gitkeep
+
+############################
+# HuggingFace / Transformers
+############################
+**/checkpoint-*/
+**/trainer_state.json
+**/optimizer.pt
+**/scheduler.pt
+**/rng_state.pth
+**/training_args.bin
+
+############################
+# Torch / CUDA
+############################
+*.pt
+*.pth
+*.ckpt
+
+############################
+# Reports (generated)
+############################
+report/figures/**
+report/latex/**/*.aux
+report/latex/**/*.log
+report/latex/**/*.out
+report/latex/**/*.toc
+report/latex/**/*.synctex.gz
+
+############################
+# Temporary / Scratch
+############################
+tmp/
+scratch/
+debug/

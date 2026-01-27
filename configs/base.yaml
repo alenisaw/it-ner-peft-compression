@@ -1,0 +1,65 @@
+project:
+  dataset: "mrm8488/stackoverflow-ner"
+  seed: 13
+
+data:
+  max_length: 128
+  label_all_tokens: false
+
+data_prep:
+  force_redownload: false
+  oversample_factor: 1.0
+  rare_boost: 0.0
+
+weak:
+  enabled: true
+  dataset: "bigcode/the-stack-github-issues"
+  sample_n: 60000
+  max_len: 128
+  weak_ratio: 0.6
+
+train:
+  lr: 2e-5
+  weight_decay: 0.01
+  warmup_ratio: 0.1
+  batch_size: 8
+  eval_batch_size: 8
+  grad_accum: 2
+  epochs: 5
+  fp16: true
+  tf32: true
+  gradient_checkpointing: true
+  logging_steps: 50
+  save_total_limit: 2
+  dataloader_num_workers: 2
+
+lora:
+  enabled: true
+  epochs: 10
+  r: 8
+  alpha: 16
+  dropout: 0.05
+  bias: "none"
+  target_modules: ["query", "value"]
+  modules_to_save: ["classifier"]
+
+distill:
+  enabled: true
+  teacher_run: "bert_full"
+  student_base_model: "distilbert-base-cased"
+  temperature: 2.0
+  alpha_ce: 0.5
+  alpha_kd: 0.5
+  epochs: 5
+  lr: 3e-5
+  batch_size: 16
+  eval_batch_size: 32
+
+export:
+  enabled: true
+  seq_len: 128
+  bench_n: 200
+
+eval:
+  max_error_examples: 50
+  confusion_topk: 20

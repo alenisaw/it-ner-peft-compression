@@ -1,2 +1,15 @@
+models/** -text -diff
+data/**   -text -diff
+
+*.onnx        binary
+*.bin         binary
+*.safetensors binary
+*.pt          binary
+*.pth         binary
+*.npy         binary
+*.npz         binary
+*.arrow       binary
+*.parquet     binary
+*.msgpack     binary
 *.onnx filter=lfs diff=lfs merge=lfs -text
 *.onnx.data filter=lfs diff=lfs merge=lfs -text
