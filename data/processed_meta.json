@@ -1,0 +1,116 @@
+{
+  "dataset": "mrm8488/stackoverflow-ner",
+  "tag_mode": "str",
+  "new_label_names": [
+    "O",
+    "B-ERROR",
+    "B-HARDWARE",
+    "B-OS",
+    "B-SOFTWARE",
+    "B-VERSION",
+    "I-ERROR",
+    "I-HARDWARE",
+    "I-OS",
+    "I-SOFTWARE",
+    "I-VERSION"
+  ],
+  "new_num_labels": 11,
+  "mapping_coverage": {
+    "mode": "str",
+    "mapped_count": 14,
+    "total_count": 49,
+    "coverage_ratio": 0.2857142857142857,
+    "mapped_label_names": [
+      "B-Application",
+      "B-Device",
+      "B-Error_Name",
+      "B-Language",
+      "B-Library",
+      "B-Operating_System",
+      "B-Version",
+      "I-Application",
+      "I-Device",
+      "I-Error_Name",
+      "I-Language",
+      "I-Library",
+      "I-Operating_System",
+      "I-Version"
+    ],
+    "unmapped_label_names": [
+      "B-Algorithm",
+      "B-Class",
+      "B-Code_Block",
+      "B-Data_Structure",
+      "B-Data_Type",
+      "B-File_Name",
+      "B-File_Type",
+      "B-Function",
+      "B-HTML_XML_Tag",
+      "B-Keyboard_IP",
+      "B-Licence",
+      "B-Output_Block",
+      "B-User_Interface_Element",
+      "B-User_Name",
+      "B-Value",
+      "B-Variable",
+      "B-Website",
+      "I-Algorithm",
+      "I-Class",
+      "I-Code_Block",
+      "I-Data_Structure",
+      "I-Data_Type",
+      "I-File_Name",
+      "I-File_Type",
+      "I-Function",
+      "I-HTML_XML_Tag",
+      "I-Keyboard_IP",
+      "I-Licence",
+      "I-Output_Block",
+      "I-User_Interface_Element",
+      "I-User_Name",
+      "I-Value",
+      "I-Variable",
+      "I-Website"
+    ]
+  },
+  "weak_data": {
+    "enabled": false
+  },
+  "oversampling": {
+    "enabled": false
+  },
+  "eda": {
+    "splits": {
+      "train": 9263,
+      "validation": 2936,
+      "test": 3108
+    },
+    "train_token_length": {
+      "mean": 14.789593004426212,
+      "median": 13.0,
+      "min": 1.0,
+      "max": 92.0
+    },
+    "train_label_counts": {
+      "O": 132983,
+      "B-ERROR": 61,
+      "B-HARDWARE": 199,
+      "B-OS": 171,
+      "B-SOFTWARE": 2766,
+      "B-VERSION": 257,
+      "I-ERROR": 53,
+      "I-HARDWARE": 46,
+      "I-OS": 21,
+      "I-SOFTWARE": 422,
+      "I-VERSION": 17
+    },
+    "bio_warnings_train": {
+      "i_without_prev_same_entity": 4,
+      "total_tags": 136996
+    }
+  },
+  "domain_adaptation": {
+    "target_domain": "IT support / software engineering text",
+    "task": "domain-specific NER with compact schema (5 entities)"
+  }
+}

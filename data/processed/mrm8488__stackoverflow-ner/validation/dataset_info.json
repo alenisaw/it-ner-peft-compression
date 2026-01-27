@@ -1,0 +1,68 @@
+{
+  "builder_name": "parquet",
+  "citation": "",
+  "config_name": "default",
+  "dataset_name": "stackoverflow-ner",
+  "dataset_size": 3355083,
+  "description": "",
+  "download_checksums": {
+    "hf://datasets/mrm8488/stackoverflow-ner@e44a22761da9acdd42b4181f33aac27a95436824/data/train-00000-of-00001-95d16c478b915d01.parquet": {
+      "num_bytes": 409180,
+      "checksum": null
+    },
+    "hf://datasets/mrm8488/stackoverflow-ner@e44a22761da9acdd42b4181f33aac27a95436824/data/validation-00000-of-00001-756fd0f429c813ac.parquet": {
+      "num_bytes": 137588,
+      "checksum": null
+    },
+    "hf://datasets/mrm8488/stackoverflow-ner@e44a22761da9acdd42b4181f33aac27a95436824/data/test-00000-of-00001-238ebef214ddbb96.parquet": {
+      "num_bytes": 145302,
+      "checksum": null
+    }
+  },
+  "download_size": 692070,
+  "features": {
+    "tokens": {
+      "feature": {
+        "dtype": "string",
+        "_type": "Value"
+      },
+      "_type": "List"
+    },
+    "ner_tags": {
+      "feature": {
+        "dtype": "int64",
+        "_type": "Value"
+      },
+      "_type": "List"
+    }
+  },
+  "homepage": "",
+  "license": "",
+  "size_in_bytes": 4047153,
+  "splits": {
+    "train": {
+      "name": "train",
+      "num_bytes": 2034101,
+      "num_examples": 9263,
+      "dataset_name": "stackoverflow-ner"
+    },
+    "validation": {
+      "name": "validation",
+      "num_bytes": 640919,
+      "num_examples": 2936,
+      "dataset_name": "stackoverflow-ner"
+    },
+    "test": {
+      "name": "test",
+      "num_bytes": 680063,
+      "num_examples": 3108,
+      "dataset_name": "stackoverflow-ner"
+    }
+  },
+  "version": {
+    "version_str": "0.0.0",
+    "major": 0,
+    "minor": 0,
+    "patch": 0
+  }
+}

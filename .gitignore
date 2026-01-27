@@ -27,12 +27,16 @@ Thumbs.db
 *.swo
 
 ############################
+# Logs
+############################
+*.log
+
+############################
 # Caches
 ############################
 .cache/
 **/.cache/
 pip-wheel-metadata/
-*.log
 
 ############################
 # Experiment tracking
@@ -42,30 +46,6 @@ runs/
 mlruns/
 tensorboard/
 tb_logs/
-
-############################
-# Data (raw & processed)
-############################
-data/raw/**
-data/processed/**
-data/**/cache/**
-data/**/tmp/**
-
-# Оставляем только метаданные
-!data/dataset_meta.json
-!data/processed_meta.json
-
-############################
-# Models & Checkpoints
-############################
-models/**
-exports/**
-onnx/**
-tmp_merged_lora/**
-
-# Если хочешь оставить структуру папок:
-!models/.gitkeep
-!exports/.gitkeep
 
 ############################
 # HuggingFace / Transformers
@@ -78,11 +58,28 @@ tmp_merged_lora/**
 **/training_args.bin
 
 ############################
-# Torch / CUDA
+# Torch / CUDA temp
 ############################
-*.pt
-*.pth
 *.ckpt
+
+############################
+# Data (RAW & TEMP ONLY)
+############################
+data/raw/**
+data/**/cache/**
+data/**/tmp/**
+
+# Keep metadata only
+!data/dataset_meta.json
+!data/processed_meta.json
+
+############################
+# Models & Exports
+############################
+tmp_merged_lora/**
+tmp/**
+scratch/**
+debug/**
 
 ############################
 # Reports (generated)
@@ -95,8 +92,8 @@ report/latex/**/*.toc
 report/latex/**/*.synctex.gz
 
 ############################
-# Temporary / Scratch
+# Misc
 ############################
-tmp/
-scratch/
-debug/
+*.tmp
+*.bak
+*.old

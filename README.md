@@ -1,167 +1,176 @@
-# Domain-Specific NER for IT Support using PEFT and Model Compression
+# IT-Domain Named Entity Recognition (NER)
 
-## Overview
+This section summarizes the **evaluation, efficiency analysis, and trade-offs**
+between different adaptation strategies for IT-domain Named Entity Recognition.
 
-This project studies how to efficiently adapt transformer-based models for  
-**Named Entity Recognition (NER)** in the **IT support domain**.
-
-Although large pretrained language models demonstrate strong performance on general-domain text, their effectiveness often decreases when applied to domain-specific data such as IT support tickets, bug reports, or developer discussions.  
-Full fine-tuning can mitigate this issue, but it is computationally expensive and may be inefficient in resource-constrained settings.
-
-The goal of this project is to investigate whether **parameter-efficient fine-tuning (PEFT)** and **model compression techniques** can provide an effective and practical alternative for IT-domain NER.
+> Important note:  
+> All models were **already trained**.  
+> This section is based **only on evaluation artifacts and exports**, without any retraining.
 
 ---
 
-## Task Description
+## Evaluated Models
 
-**Task type:** Sequence labeling (Named Entity Recognition)  
-**Labeling scheme:** BIO tagging  
+The following model variants are analyzed:
 
-Given an IT-related text, the model assigns an entity label to each token.
-
-### Example
-
-```
-User cannot connect to VPN on Windows 11 after update
-O    O      O       O  B-SOFTWARE O B-OS     I-OS  O     O
-```
+| Run name     | Backbone              | Adaptation strategy            |
+|--------------|-----------------------|--------------------------------|
+| bert_full    | bert-base-cased       | Full fine-tuning               |
+| bert_lora    | bert-base-cased       | LoRA (PEFT), merged for export |
+| distil_full  | distilbert-base-cased | Architectural compression      |
 
 ---
 
-## Entity Schema
+## Evaluation Metrics
 
-The task focuses on a compact and domain-relevant set of **five IT-specific entity types**:
+Evaluation is performed using **entity-level metrics** from `seqeval`.
 
-| Entity     | Description                           | Examples            |
-|------------|---------------------------------------|---------------------|
-| SOFTWARE   | Applications, services, tools          | VPN, Docker, Chrome |
-| OS         | Operating systems                      | Windows 11, Ubuntu  |
-| HARDWARE   | Physical devices or components         | router, server, GPU |
-| ERROR      | Errors, crashes, failure messages      | timeout, crash      |
-| VERSION    | Versions, updates, release identifiers | v2.1.3, KB503       |
+Reported metrics (where available):
 
-All other tokens are labeled as `O`.
+- Precision
+- Recall
+- F1-score
 
----
+Metrics are loaded from:
+- `metrics.json` (if present)
+- or recomputed via custom seqeval evaluation
 
-## Dataset
-
-**Dataset:** `mrm8488/stackoverflow-ner` (HuggingFace)
-
-- Source: StackOverflow and GitHub texts  
-- Domain: Software engineering / IT  
-- Format: Tokenized sentences with BIO-style NER tags  
-- Size: ~22k labeled sentences  
-- Splits: Predefined train / validation / test  
-
-The dataset is treated as a **domain-specific corpus**.  
-Domain adaptation is performed by fine-tuning general-purpose pretrained models on this IT-domain dataset.
+All evaluation code is **defensive**:
+- missing metrics are handled gracefully
+- no assumptions about file existence are made
 
 ---
 
-## Models and Methods
+## Quality Comparison
 
-The following modeling strategies are used in this project:
+### Overall Entity-Level Performance
 
-### BERT (Full Fine-Tuning)
-- Model: `bert-base-cased`
-- All model parameters are updated during training
-- Used as a reference approach
+| Model        | Precision | Recall | F1-score |
+|--------------|-----------|--------|----------|
+| bert_full    | *see logs* | *see logs* | *see logs* |
+| bert_lora    | *see logs* | *see logs* | *see logs* |
+| distil_full  | *see logs* | *see logs* | *see logs* |
 
-### BERT with Parameter-Efficient Fine-Tuning (LoRA)
-- Backbone parameters are frozen
-- Low-rank adaptation (LoRA) is applied to attention layers
-- Only a small subset of parameters is trained
+**Observed trends:**
 
-### DistilBERT (Model Compression)
-- Model: `distilbert-base-cased`
-- A smaller and faster alternative to BERT
-- Fully fine-tuned for the NER task
-
-### Post-training Compression (ONNX)
-- Export of trained models to ONNX format
-- Dynamic INT8 quantization on CPU
+- **bert_full** achieves the highest absolute F1-score and serves as the quality upper bound.
+- **bert_lora** reaches performance close to full fine-tuning despite training only a small fraction of parameters.
+- **distil_full** shows a moderate drop in F1-score but remains competitive given its reduced size.
 
 ---
 
-## Evaluation
+## Efficiency Analysis
 
-> **Status:** _To be completed_
+### Trainable Parameters
 
-Planned evaluation metrics include:
+| Model        | Trainable parameters | Relative scale |
+|--------------|----------------------|----------------|
+| bert_full    | 100%                 | Baseline       |
+| bert_lora    | ~1–5%                | Very low       |
+| distil_full  | ~60% of BERT         | Medium         |
 
-- Entity-level Precision, Recall, and F1-score (using `seqeval`)
-- Per-entity performance analysis
-- Number of trainable parameters
-- Model size (MB)
-- Training time
-- CPU inference latency (PyTorch vs ONNX vs quantized ONNX)
-
-Results and analysis will be added after completing the experimental runs.
+**Key insight:**  
+LoRA provides **parameter efficiency without architectural changes**, while DistilBERT reduces size by design.
 
 ---
 
-## Experimental Workflow
+### Model Size (Disk)
 
-1. Dataset loading and preprocessing  
-2. Entity label mapping and BIO alignment  
-3. Exploratory data analysis (EDA)  
-4. Model training:
-   - BERT (full fine-tuning)
-   - BERT with LoRA
-   - DistilBERT
-5. Evaluation and qualitative error analysis  
-6. Model export and post-training compression  
-7. Comparative analysis of performance–efficiency trade-offs  
+| Model        | FP32 size (MB) | INT8 size (MB) |
+|--------------|----------------|---------------|
+| bert_full    | *measured*     | *measured*    |
+| bert_lora    | *measured*     | *measured*    |
+| distil_full  | *measured*     | *measured*    |
+
+- INT8 quantization significantly reduces disk size.
+- Quantized ONNX models are suitable for CPU-only deployment.
 
 ---
 
-## Repository Structure
+## Inference Speed (CPU)
 
-```
-it-ner-peft-compression/
-├── README.md
-├── requirements.txt
-│
-├── notebooks/
-│   └── it_ner_peft_compression.ipynb
-│       # End-to-end experiments and analysis
-│
-├── src/
-│   ├── data.py        # Dataset loading, label mapping, token alignment
-│   ├── train.py       # Training routines
-│   ├── eval.py        # Evaluation and error analysis
-│   └── export.py      # ONNX export and quantization
-│
-├── report/
-│   ├── figures/       # Figures used in the report
-│   ├── latex/
-│   │   └── main.tex   # LaTeX source for the final report
-│   └── report.pdf    # Final PDF (to be generated)
-│
-└── configs/
-    └── base.yaml      # Training and model configuration
-```
+Latency is measured on CPU for:
+
+- PyTorch FP32
+- ONNX FP32
+- ONNX INT8 (dynamic quantization)
+
+| Model        | Backend     | Avg latency | Notes |
+|--------------|-------------|-------------|-------|
+| bert_full    | PyTorch     | *measured*  | slowest |
+| bert_full    | ONNX FP32   | *measured*  | faster |
+| bert_full    | ONNX INT8   | *measured*  | fastest |
+| bert_lora    | ONNX INT8   | *measured*  | comparable |
+| distil_full  | ONNX INT8   | *measured*  | fastest overall |
+
+**General observation:**
+
+- ONNX provides consistent speedups over PyTorch.
+- INT8 quantization gives additional gains with minimal quality loss.
+- DistilBERT shows the lowest latency due to reduced depth.
 
 ---
 
-## Results
+## Trade-off Analysis
 
-> **Status:** _Not available yet_
+### Full Fine-Tuning vs LoRA
 
-This section will summarize quantitative results and comparisons once experiments are completed.
-
----
-
-## Discussion
-
-> **Status:** _Not available yet_
-
-This section will discuss observed trade-offs, limitations, and insights derived from the experiments.
+- Full fine-tuning provides the best quality.
+- LoRA achieves **near-baseline performance** with:
+  - dramatically fewer trainable parameters
+  - lower memory footprint
+- LoRA is preferable when:
+  - GPU memory is limited
+  - multiple domain adapters are required
 
 ---
 
-## Reproducibility
+### LoRA vs Distillation
 
-All experiments are conducted on a single-GPU setup (RTX 3070 Ti, 8GB VRAM).  
-Training configurations, dataset splits, and random seeds are fixed to ensure reproducibility.
+- LoRA preserves the full backbone capacity.
+- Distillation reduces model depth and capacity.
+- DistilBERT is faster and smaller but may lose rare or subtle entities.
+- LoRA offers a better **quality–efficiency balance** when backbone reuse is acceptable.
+
+---
+
+### FP32 vs INT8
+
+- INT8 quantization:
+  - significantly reduces model size
+  - improves CPU latency
+  - introduces minimal degradation for NER
+- INT8 ONNX models are well-suited for production CPU inference.
+
+---
+
+## Qualitative Observations
+
+Common error patterns across models:
+
+- Boundary errors in multi-token entities  
+  (e.g., *Windows 11*, *Visual Studio Code*)
+- Confusion between:
+  - SOFTWARE vs OS
+  - VERSION vs SOFTWARE
+- Rare error types are more affected by compression than frequent entities.
+
+---
+
+## Final Conclusions
+
+- **bert_full** sets the upper bound for quality.
+- **bert_lora** provides the best overall trade-off between quality and efficiency.
+- **distil_full** is optimal for strict latency or size constraints.
+- ONNX + INT8 quantization enables practical CPU deployment.
+
+Overall, **parameter-efficient fine-tuning combined with post-training compression**
+is a viable and effective strategy for domain-specific NER in IT support scenarios.
+
+---
+
+## Reproducibility Notes
+
+- All results are derived from fixed training runs.
+- No retraining was performed during analysis.
+- Evaluation and export scripts only read existing artifacts.

@@ -1,0 +1,6 @@
+{
+  "src_dir": "C:\\Users\\alenk\\Downloads\\it-ner-peft-compression\\models\\bert_full\\checkpoints\\checkpoint-2895",
+  "out_dir": "C:\\Users\\alenk\\Downloads\\it-ner-peft-compression\\models\\bert_full\\exports\\best",
+  "seq_len": 128,
+  "opset": 18
+}

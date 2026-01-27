@@ -1,0 +1,32 @@
+{
+  "ERROR": {
+    "precision": 0.0,
+    "recall": 0.0,
+    "f1": 0.0,
+    "number": 18.0
+  },
+  "HARDWARE": {
+    "precision": 0.0,
+    "recall": 0.0,
+    "f1": 0.0,
+    "number": 53.0
+  },
+  "OS": {
+    "precision": 0.0,
+    "recall": 0.0,
+    "f1": 0.0,
+    "number": 66.0
+  },
+  "SOFTWARE": {
+    "precision": 0.453781512605042,
+    "recall": 0.3847980997624703,
+    "f1": 0.416452442159383,
+    "number": 842.0
+  },
+  "VERSION": {
+    "precision": 0.0,
+    "recall": 0.0,
+    "f1": 0.0,
+    "number": 111.0
+  }
+}

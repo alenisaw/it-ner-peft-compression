@@ -1,0 +1,50 @@
+{
+  "activation": "gelu",
+  "architectures": [
+    "DistilBertForTokenClassification"
+  ],
+  "attention_dropout": 0.1,
+  "dim": 768,
+  "dropout": 0.1,
+  "dtype": "float32",
+  "hidden_dim": 3072,
+  "id2label": {
+    "0": "O",
+    "1": "B-ERROR",
+    "2": "B-HARDWARE",
+    "3": "B-OS",
+    "4": "B-SOFTWARE",
+    "5": "B-VERSION",
+    "6": "I-ERROR",
+    "7": "I-HARDWARE",
+    "8": "I-OS",
+    "9": "I-SOFTWARE",
+    "10": "I-VERSION"
+  },
+  "initializer_range": 0.02,
+  "label2id": {
+    "B-ERROR": 1,
+    "B-HARDWARE": 2,
+    "B-OS": 3,
+    "B-SOFTWARE": 4,
+    "B-VERSION": 5,
+    "I-ERROR": 6,
+    "I-HARDWARE": 7,
+    "I-OS": 8,
+    "I-SOFTWARE": 9,
+    "I-VERSION": 10,
+    "O": 0
+  },
+  "max_position_embeddings": 512,
+  "model_type": "distilbert",
+  "n_heads": 12,
+  "n_layers": 6,
+  "output_past": true,
+  "pad_token_id": 0,
+  "qa_dropout": 0.1,
+  "seq_classif_dropout": 0.2,
+  "sinusoidal_pos_embds": false,
+  "tie_weights_": true,
+  "transformers_version": "4.57.1",
+  "vocab_size": 28996
+}

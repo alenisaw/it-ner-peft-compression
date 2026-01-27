@@ -1,0 +1,40 @@
+{
+  "run": "distil_full",
+  "base_model": "distilbert-base-cased",
+  "use_lora": false,
+  "dataset": "mrm8488/stackoverflow-ner",
+  "seed": 13,
+  "max_length": 128,
+  "label_all_tokens": false,
+  "num_labels": 11,
+  "label_names": [
+    "O",
+    "B-ERROR",
+    "B-HARDWARE",
+    "B-OS",
+    "B-SOFTWARE",
+    "B-VERSION",
+    "I-ERROR",
+    "I-HARDWARE",
+    "I-OS",
+    "I-SOFTWARE",
+    "I-VERSION"
+  ],
+  "fp16": true,
+  "tf32": true,
+  "gradient_checkpointing": true,
+  "max_train_samples": null,
+  "max_eval_samples": null,
+  "effective_batch": 16,
+  "lora": {
+    "enabled": false
+  },
+  "batch_size": 8,
+  "grad_accum": 2,
+  "epochs": 5.0,
+  "lr": 2e-05,
+  "weight_decay": 0.01,
+  "warmup_ratio": 0.1,
+  "eval_batch_size": 8,
+  "dataloader_num_workers": 2
+}

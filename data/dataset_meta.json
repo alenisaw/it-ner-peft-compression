@@ -1,0 +1,7 @@
+{
+  "dataset": "mrm8488/stackoverflow-ner",
+  "tag_mode": "str",
+  "original_num_labels": null,
+  "original_label_names": null,
+  "labels_for_map_count": 49
+}
