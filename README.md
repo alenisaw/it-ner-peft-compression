@@ -1,43 +1,32 @@
 # IT-Domain Named Entity Recognition (NER)
 
-This section summarizes the **evaluation, efficiency analysis, and trade-offs**
-between different adaptation strategies for IT-domain Named Entity Recognition.
+This repository presents an analysis of **quality, efficiency, and deployment trade-offs**
+between different adaptation strategies for **IT-domain Named Entity Recognition (NER)**.
 
-> Important note:  
-> All models were **already trained**.  
-> This section is based **only on evaluation artifacts and exports**, without any retraining.
+All models compared here were trained beforehand.  
+The focus is on **comparative evaluation and practical implications**, not on training procedures.
 
 ---
 
 ## Evaluated Models
 
-The following model variants are analyzed:
-
 | Run name     | Backbone              | Adaptation strategy            |
 |--------------|-----------------------|--------------------------------|
 | bert_full    | bert-base-cased       | Full fine-tuning               |
-| bert_lora    | bert-base-cased       | LoRA (PEFT), merged for export |
+| bert_lora    | bert-base-cased       | LoRA (PEFT), merged weights    |
 | distil_full  | distilbert-base-cased | Architectural compression      |
 
 ---
 
 ## Evaluation Metrics
 
-Evaluation is performed using **entity-level metrics** from `seqeval`.
+Evaluation is performed using **entity-level NER metrics**:
 
-Reported metrics (where available):
+- Precision  
+- Recall  
+- F1-score  
 
-- Precision
-- Recall
-- F1-score
-
-Metrics are loaded from:
-- `metrics.json` (if present)
-- or recomputed via custom seqeval evaluation
-
-All evaluation code is **defensive**:
-- missing metrics are handled gracefully
-- no assumptions about file existence are made
+Metrics are computed at the entity level following standard sequence-labeling evaluation practice.
 
 ---
 
@@ -47,15 +36,15 @@ All evaluation code is **defensive**:
 
 | Model        | Precision | Recall | F1-score |
 |--------------|-----------|--------|----------|
-| bert_full    | *see logs* | *see logs* | *see logs* |
-| bert_lora    | *see logs* | *see logs* | *see logs* |
-| distil_full  | *see logs* | *see logs* | *see logs* |
+| bert_full    | 0.672     | 0.743  | **0.706** |
+| bert_lora    | 0.637     | 0.776  | 0.699 |
+| distil_full  | 0.454     | 0.297  | 0.359 |
 
-**Observed trends:**
+**Observations:**
 
-- **bert_full** achieves the highest absolute F1-score and serves as the quality upper bound.
-- **bert_lora** reaches performance close to full fine-tuning despite training only a small fraction of parameters.
-- **distil_full** shows a moderate drop in F1-score but remains competitive given its reduced size.
+- **bert_full** achieves the highest F1-score and defines the quality upper bound.
+- **bert_lora** closely matches full fine-tuning, trading slightly lower precision for higher recall.
+- **distil_full** shows a substantial recall drop, leading to noticeably lower overall quality.
 
 ---
 
@@ -65,49 +54,37 @@ All evaluation code is **defensive**:
 
 | Model        | Trainable parameters | Relative scale |
 |--------------|----------------------|----------------|
-| bert_full    | 100%                 | Baseline       |
+| bert_full    | 100%                 | High           |
 | bert_lora    | ~1–5%                | Very low       |
 | distil_full  | ~60% of BERT         | Medium         |
 
 **Key insight:**  
-LoRA provides **parameter efficiency without architectural changes**, while DistilBERT reduces size by design.
+LoRA achieves near-baseline quality while updating only a small fraction of parameters, whereas DistilBERT reduces capacity through architectural changes.
 
 ---
 
-### Model Size (Disk)
+### Model Size
 
-| Model        | FP32 size (MB) | INT8 size (MB) |
-|--------------|----------------|---------------|
-| bert_full    | *measured*     | *measured*    |
-| bert_lora    | *measured*     | *measured*    |
-| distil_full  | *measured*     | *measured*    |
-
-- INT8 quantization significantly reduces disk size.
-- Quantized ONNX models are suitable for CPU-only deployment.
+- INT8 quantization significantly reduces model size across all variants.
+- Quantized models are suitable for **CPU-only deployment**.
+- Size reduction is most impactful for full BERT, while also benefiting LoRA and DistilBERT models.
 
 ---
 
 ## Inference Speed (CPU)
 
-Latency is measured on CPU for:
+Latency is evaluated under:
 
-- PyTorch FP32
-- ONNX FP32
-- ONNX INT8 (dynamic quantization)
+- PyTorch FP32  
+- ONNX FP32  
+- ONNX INT8  
 
-| Model        | Backend     | Avg latency | Notes |
-|--------------|-------------|-------------|-------|
-| bert_full    | PyTorch     | *measured*  | slowest |
-| bert_full    | ONNX FP32   | *measured*  | faster |
-| bert_full    | ONNX INT8   | *measured*  | fastest |
-| bert_lora    | ONNX INT8   | *measured*  | comparable |
-| distil_full  | ONNX INT8   | *measured*  | fastest overall |
+**General trends:**
 
-**General observation:**
-
-- ONNX provides consistent speedups over PyTorch.
-- INT8 quantization gives additional gains with minimal quality loss.
-- DistilBERT shows the lowest latency due to reduced depth.
+- ONNX inference consistently outperforms PyTorch execution.
+- INT8 quantization provides additional latency improvements.
+- **DistilBERT** achieves the lowest latency due to reduced depth.
+- **LoRA-based BERT** remains competitive while retaining full backbone capacity.
 
 ---
 
@@ -115,62 +92,52 @@ Latency is measured on CPU for:
 
 ### Full Fine-Tuning vs LoRA
 
-- Full fine-tuning provides the best quality.
+- Full fine-tuning yields the best absolute quality.
 - LoRA achieves **near-baseline performance** with:
   - dramatically fewer trainable parameters
-  - lower memory footprint
-- LoRA is preferable when:
-  - GPU memory is limited
-  - multiple domain adapters are required
+  - lower memory requirements
+- LoRA is preferable when resources are constrained or multiple domain adaptations are needed.
 
 ---
 
 ### LoRA vs Distillation
 
-- LoRA preserves the full backbone capacity.
-- Distillation reduces model depth and capacity.
-- DistilBERT is faster and smaller but may lose rare or subtle entities.
-- LoRA offers a better **quality–efficiency balance** when backbone reuse is acceptable.
+- LoRA preserves the representational capacity of the full backbone.
+- Distillation reduces size and depth at the cost of expressiveness.
+- DistilBERT performs well under strict latency constraints but struggles with rare or complex entities.
+- LoRA offers a more balanced quality–efficiency trade-off when backbone reuse is acceptable.
 
 ---
 
 ### FP32 vs INT8
 
 - INT8 quantization:
-  - significantly reduces model size
-  - improves CPU latency
-  - introduces minimal degradation for NER
-- INT8 ONNX models are well-suited for production CPU inference.
+  - substantially reduces model size
+  - improves CPU inference speed
+  - introduces only minor degradation for NER
+- INT8 ONNX models are suitable for practical production scenarios.
 
 ---
 
 ## Qualitative Observations
 
-Common error patterns across models:
+Common error patterns across models include:
 
 - Boundary errors in multi-token entities  
   (e.g., *Windows 11*, *Visual Studio Code*)
-- Confusion between:
+- Confusion between closely related entity types:
   - SOFTWARE vs OS
-  - VERSION vs SOFTWARE
-- Rare error types are more affected by compression than frequent entities.
+  - SOFTWARE vs VERSION
+- Rare entities are more sensitive to compression than frequent ones.
 
 ---
 
 ## Final Conclusions
 
-- **bert_full** sets the upper bound for quality.
-- **bert_lora** provides the best overall trade-off between quality and efficiency.
-- **distil_full** is optimal for strict latency or size constraints.
-- ONNX + INT8 quantization enables practical CPU deployment.
+- **bert_full** defines the upper bound for quality.
+- **bert_lora** provides the best balance between performance and efficiency.
+- **distil_full** is appropriate for scenarios with strict latency or size constraints.
+- Combining parameter-efficient adaptation with post-training quantization enables practical CPU deployment.
 
-Overall, **parameter-efficient fine-tuning combined with post-training compression**
-is a viable and effective strategy for domain-specific NER in IT support scenarios.
-
----
-
-## Reproducibility Notes
-
-- All results are derived from fixed training runs.
-- No retraining was performed during analysis.
-- Evaluation and export scripts only read existing artifacts.
+Overall, **parameter-efficient fine-tuning combined with lightweight compression**
+is an effective strategy for domain-specific NER in IT support scenarios.
