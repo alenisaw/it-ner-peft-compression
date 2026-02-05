@@ -3,7 +3,7 @@
     "BertForTokenClassification"
   ],
   "attention_probs_dropout_prob": 0.1,
-  "classifier_dropout": null,
+  "classifier_dropout": 0.2,
   "dtype": "float32",
   "gradient_checkpointing": false,
   "hidden_act": "gelu",

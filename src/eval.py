@@ -28,6 +28,7 @@ from typing import Any, Dict, List, Tuple
 
 import numpy as np
 import evaluate
+import torch
 from datasets import DatasetDict, load_from_disk
 from transformers import (
     AutoConfig,
@@ -117,7 +118,7 @@ def _seqeval_metrics(
         true_predictions.append(sent_preds)
         true_labels.append(sent_labels)
 
-    out = seqeval.compute(predictions=true_predictions, references=true_labels)
+    out = seqeval.compute(predictions=true_predictions, references=true_labels, zero_division=0)
 
     overall = {
         "precision": float(out.get("overall_precision", 0.0)),
@@ -246,7 +247,7 @@ def eval_run(
 
     os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
 
-    device = "cuda" if (os.environ.get("CUDA_VISIBLE_DEVICES", "") != "" and __import__("torch").cuda.is_available()) else "cpu"
+    device = "cuda" if torch.cuda.is_available() else "cpu"
 
     logger.info("Loading tokenizer/model from %s", run_dir)
     model, tokenizer, id2label = _load_model_and_tokenizer(paths, run_dir, device=device)
@@ -285,7 +286,12 @@ def eval_run(
     )
     write_json(run_dir / "errors.json", errors)
 
-    logger.info("Saved metrics.json, per_entity.json, errors.json")
+    resolved_path = run_dir / "config_resolved.json"
+    resolved = read_json(resolved_path) if resolved_path.exists() else {}
+    full = {"overall": overall, "per_entity": per_entity, "resolved": resolved}
+    write_json(run_dir / "metrics_full.json", full)
+
+    logger.info("Saved metrics.json, per_entity.json, metrics_full.json, errors.json")
 
     return {"run": run, "run_dir": str(run_dir), "overall": overall, "per_entity": per_entity}
 

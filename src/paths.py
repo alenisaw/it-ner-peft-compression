@@ -59,9 +59,32 @@ def setup_logger(log_path: Path, name: str) -> logging.Logger:
     return logger
 
 
+def find_repo_root(start: str | Path = ".") -> Path:
+    p = Path(start).resolve()
+    if p.is_file():
+        p = p.parent
+
+    cur = p
+    while True:
+        if (cur / "configs" / "base.yaml").exists():
+            return cur
+        if (cur / ".git").exists():
+            return cur
+        if cur.parent == cur:
+            break
+        cur = cur.parent
+
+    raise FileNotFoundError(
+        f"Repo root not found from start={p}. Expected 'configs/base.yaml' or '.git'."
+    )
+
+
 @dataclass(frozen=True)
 class ProjectPaths:
     root: Path
+    configs_dir: Path
+    config_path: Path
+
     data: Path
     models: Path
     report: Path
@@ -70,18 +93,32 @@ class ProjectPaths:
     figures: Path
     latex: Path
 
+    onnx: Path
+    logs: Path
+
     @staticmethod
     def from_root(root: str | Path = ".") -> "ProjectPaths":
-        root = Path(root).resolve()
+        root = find_repo_root(root)
+
+        configs_dir = root / "configs"
+        config_path = configs_dir / "base.yaml"
+
         data = root / "data"
         models = root / "models"
-        report = root / "report"
+
+        report = root / "notebooks" / "report"
         raw_data = data / "raw"
         processed_data = data / "processed"
         figures = report / "figures"
         latex = report / "latex"
+
+        onnx = root / "onnx"
+        logs = root / "logs"
+
         return ProjectPaths(
             root=root,
+            configs_dir=configs_dir,
+            config_path=config_path,
             data=data,
             models=models,
             report=report,
@@ -89,10 +126,13 @@ class ProjectPaths:
             processed_data=processed_data,
             figures=figures,
             latex=latex,
+            onnx=onnx,
+            logs=logs,
         )
 
     def ensure(self) -> None:
         for path in (
+            self.configs_dir,
             self.data,
             self.models,
             self.report,
@@ -100,5 +140,7 @@ class ProjectPaths:
             self.processed_data,
             self.figures,
             self.latex,
+            self.onnx,
+            self.logs,
         ):
             path.mkdir(parents=True, exist_ok=True)

@@ -1,0 +1,96 @@
+{
+  "overall": {
+    "precision": 0.7540650406504065,
+    "recall": 0.6832412523020258,
+    "f1": 0.7169082125603864,
+    "accuracy": 0.9869998682419079
+  },
+  "per_entity": {
+    "ERROR": {
+      "precision": 0.09090909090909091,
+      "recall": 0.05555555555555555,
+      "f1": 0.06896551724137931,
+      "number": 18.0
+    },
+    "HARDWARE": {
+      "precision": 0.7272727272727273,
+      "recall": 0.6037735849056604,
+      "f1": 0.6597938144329897,
+      "number": 53.0
+    },
+    "OS": {
+      "precision": 0.8055555555555556,
+      "recall": 0.8787878787878788,
+      "f1": 0.8405797101449276,
+      "number": 66.0
+    },
+    "SOFTWARE": {
+      "precision": 0.7433862433862434,
+      "recall": 0.6706443914081146,
+      "f1": 0.7051442910915935,
+      "number": 838.0
+    },
+    "VERSION": {
+      "precision": 0.8811881188118812,
+      "recall": 0.8018018018018018,
+      "f1": 0.8396226415094339,
+      "number": 111.0
+    }
+  },
+  "resolved": {
+    "run": "distil_full",
+    "base_model": "distilbert-base-cased",
+    "use_lora": false,
+    "dataset": "mrm8488/stackoverflow-ner",
+    "seed": 13,
+    "max_length": 128,
+    "label_all_tokens": false,
+    "num_labels": 11,
+    "label_names": [
+      "O",
+      "B-ERROR",
+      "B-HARDWARE",
+      "B-OS",
+      "B-SOFTWARE",
+      "B-VERSION",
+      "I-ERROR",
+      "I-HARDWARE",
+      "I-OS",
+      "I-SOFTWARE",
+      "I-VERSION"
+    ],
+    "fp16": true,
+    "tf32": true,
+    "gradient_checkpointing": true,
+    "max_train_samples": null,
+    "max_eval_samples": null,
+    "effective_batch": 16,
+    "lr_effective": 2e-05,
+    "label_smoothing": 0.05,
+    "lr_scheduler": "cosine",
+    "max_grad_norm": 1.0,
+    "metric_for_best_model": "eval_f1",
+    "greater_is_better": true,
+    "early_stopping_patience": 1,
+    "early_stopping_threshold": 0.0,
+    "group_by_length": true,
+    "lora": {
+      "enabled": false
+    },
+    "model_cfg": {
+      "hidden_dropout_prob": 0.1,
+      "attention_probs_dropout_prob": 0.1,
+      "classifier_dropout": 0.2,
+      "dropout": 0.1,
+      "attention_dropout": 0.1
+    },
+    "batch_size": 16,
+    "grad_accum": 1,
+    "epochs": 6.0,
+    "lr": 2e-05,
+    "weight_decay": 0.01,
+    "warmup_ratio": 0.06,
+    "eval_batch_size": 16,
+    "dataloader_num_workers": 4
+  }
+}

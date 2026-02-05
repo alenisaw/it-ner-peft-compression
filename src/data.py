@@ -52,17 +52,59 @@ def _detect_tag_mode(ds_raw: DatasetDict) -> str:
     return "unknown"
 
 
-def _infer_old_label_names(ds_raw: DatasetDict) -> Optional[List[str]]:
-    ner_feat = ds_raw["train"].features.get("ner_tags", None)
-    if ner_feat is None:
-        raise RuntimeError("Dataset does not have 'ner_tags' feature.")
+def _get_feature_label_names(ds_raw: DatasetDict, key: str) -> Optional[List[str]]:
+    feats = ds_raw["train"].features
+    if key not in feats:
+        return None
+    ner_feat = feats.get(key)
     feat = getattr(ner_feat, "feature", None)
     if feat is None:
         feat = ner_feat
     names = getattr(feat, "names", None)
-    if names is None:
+    if not names:
         return None
     return [str(x) for x in names]
+
+
+def _infer_old_label_names(ds_raw: DatasetDict) -> Optional[List[str]]:
+    names = _get_feature_label_names(ds_raw, "ner_tags")
+    if names:
+        return names
+    for k in ("tags", "labels", "label_ids"):
+        names = _get_feature_label_names(ds_raw, k)
+        if names:
+            return names
+    return None
+
+
+def _infer_old_label_names_fallback(
+    ds_raw: DatasetDict,
+    tag_mode: str,
+    max_scan: int = 2000,
+) -> Optional[List[str]]:
+    if tag_mode == "str":
+        uniq = set()
+        n = min(max_scan, len(ds_raw["train"]))
+        for i in range(n):
+            tags = ds_raw["train"][i].get("ner_tags") or []
+            for t in tags:
+                if isinstance(t, str) and t.strip():
+                    uniq.add(t.strip())
+        if uniq:
+            return sorted(uniq)
+
+    if tag_mode == "int":
+        max_id = None
+        n = min(max_scan, len(ds_raw["train"]))
+        for i in range(n):
+            tags = ds_raw["train"][i].get("ner_tags") or []
+            for t in tags:
+                if isinstance(t, int):
+                    max_id = t if max_id is None else max(max_id, t)
+        if max_id is not None:
+            return [f"LABEL_{i}" for i in range(int(max_id) + 1)]
+
+    return None
 
 
 def _new_label_vocab() -> List[str]:
@@ -78,163 +120,134 @@ def build_entity_map_from_labels(labels: List[str]) -> Dict[str, str]:
         "application", "app", "software", "tool", "library", "framework", "package",
         "language", "programminglanguage", "ide", "editor", "browser",
         "database", "db", "sql", "nosql",
-        "service", "cloud", "aws", "azure", "gcp",
-        "kubernetes", "docker", "container",
-        "api", "sdk", "platform", "runtime",
-        "server", "client",
-        "protocol", "http", "https", "tcp", "udp", "ssh", "ssl", "tls",
-        "repo", "repository", "git", "github",
     }
-    os_kw = {"operatingsystem", "os", "windows", "linux", "ubuntu", "debian", "macos", "android", "ios"}
-    hardware_kw = {"hardware", "device", "router", "switch", "cpu", "gpu", "disk", "ssd", "hdd", "ram", "laptop"}
-    error_kw = {"error", "exception", "bug", "crash", "failure", "timeout", "stacktrace", "traceback"}
-    version_kw = {"version", "release", "update", "patch", "build", "kb", "rc"}
+    os_kw = {"operatingsystem", "os"}
+    hardware_kw = {"hardware", "device", "router", "switch", "server", "laptop", "pc", "cpu", "gpu"}
+    version_kw = {"version", "release", "build"}
+    error_kw = {"error", "issue", "bug", "exception", "failure", "crash"}
 
-    def norm(s: str) -> str:
-        return s.strip().lower().replace("_", "").replace("-", "").replace(" ", "")
-
-    def choose_entity(base: str) -> str:
-        b = norm(base)
-        if any(k in b for k in os_kw):
-            return "OS"
-        if any(k in b for k in error_kw):
-            return "ERROR"
-        if any(k in b for k in version_kw):
-            return "VERSION"
-        if any(k in b for k in hardware_kw):
-            return "HARDWARE"
-        if any(k in b for k in software_kw):
-            return "SOFTWARE"
-        return "O"
-
-    mapping: Dict[str, str] = {}
+    out: Dict[str, str] = {}
     for lab in labels:
-        lab = str(lab)
-        if lab == "O":
-            mapping[lab] = "O"
+        ll = lab.lower().replace("-", "").replace("_", "").replace(" ", "")
+        if ll in {"o", "outside"}:
+            out[lab] = "O"
             continue
-        if lab.startswith(("B-", "I-")) and len(lab) > 2:
-            pref = lab[:2]
-            base = lab[2:]
-            ent = choose_entity(base)
-            mapping[lab] = "O" if ent == "O" else f"{pref}{ent}"
+        if any(k in ll for k in software_kw):
+            out[lab] = "SOFTWARE"
+            continue
+        if any(k in ll for k in os_kw):
+            out[lab] = "OS"
+            continue
+        if any(k in ll for k in hardware_kw):
+            out[lab] = "HARDWARE"
+            continue
+        if any(k in ll for k in version_kw):
+            out[lab] = "VERSION"
+            continue
+        if any(k in ll for k in error_kw):
+            out[lab] = "ERROR"
+            continue
+        if "product" in ll or "technology" in ll:
+            out[lab] = "SOFTWARE"
+            continue
+        out[lab] = "O"
+    return out
+
+
+def _bio_to_ids(tags: List[str], label2id: Dict[str, int]) -> List[int]:
+    return [int(label2id.get(t, 0)) for t in tags]
+
+
+def _map_one_example(
+    example: Dict[str, Any],
+    old_label_names: Optional[List[str]],
+    old_to_entity: Dict[str, str],
+    new_label2id: Dict[str, int],
+) -> Dict[str, Any]:
+    tokens = example["tokens"]
+    tags = example["ner_tags"]
+
+    out_tags: List[str] = []
+    prev_ent = "O"
+    for t in tags:
+        if isinstance(t, str):
+            old_name = t
         else:
-            ent = choose_entity(lab)
-            mapping[lab] = "O" if ent == "O" else f"B-{ent}"
-    return mapping
+            if not old_label_names:
+                old_name = f"LABEL_{int(t)}"
+            else:
+                idx = int(t)
+                if idx < 0 or idx >= len(old_label_names):
+                    old_name = f"LABEL_{idx}"
+                else:
+                    old_name = old_label_names[idx]
+
+        ent = old_to_entity.get(old_name, "O")
+        if ent == "O":
+            out_tags.append("O")
+            prev_ent = "O"
+            continue
+        if prev_ent != ent:
+            out_tags.append(f"B-{ent}")
+        else:
+            out_tags.append(f"I-{ent}")
+        prev_ent = ent
+
+    tag_ids = _bio_to_ids(out_tags, new_label2id)
+    return {"tokens": tokens, "ner_tags": tag_ids}
 
 
-def remap_ner_tags(
+def map_dataset_to_new_schema(
     ds_raw: DatasetDict,
-    mapping: Dict[str, str],
     old_label_names: Optional[List[str]],
     tag_mode: str,
-) -> Tuple[DatasetDict, List[str], Dict[str, Any]]:
-    new_label_names = _new_label_vocab()
-    new_label2id = {n: i for i, n in enumerate(new_label_names)}
-    coverage: Dict[str, Any] = {
-        "mode": tag_mode,
-        "mapped_count": 0,
-        "total_count": 0,
-        "coverage_ratio": 0.0,
-        "mapped_label_names": [],
-        "unmapped_label_names": [],
-    }
+) -> Tuple[DatasetDict, Dict[str, Any]]:
+    new_labels = _new_label_vocab()
+    new_label2id = {n: i for i, n in enumerate(new_labels)}
+    meta: Dict[str, Any] = {"new_label_names": new_labels}
 
-    if tag_mode == "int":
-        if not old_label_names:
-            raise RuntimeError("int ner_tags but missing label names. Use force_redownload=True.")
-        old_id2name = {i: n for i, n in enumerate(old_label_names)}
+    label_source = "features"
+    if old_label_names is None:
+        old_label_names = _infer_old_label_names_fallback(ds_raw, tag_mode=tag_mode)
+        label_source = "fallback"
 
-        def _map_example(ex):
-            out = []
-            for t in ex["ner_tags"]:
-                old = old_id2name.get(int(t), "O")
-                mapped = mapping.get(old, "O")
-                out.append(new_label2id.get(mapped, 0))
-            ex["ner_tags"] = out
-            return ex
+    if old_label_names is None:
+        raise RuntimeError("Cannot infer original label names for mapping.")
 
-        ds2 = ds_raw.map(_map_example)
+    old_to_entity = build_entity_map_from_labels(old_label_names)
+    meta["old_label_names"] = old_label_names
+    meta["old_to_entity_map"] = old_to_entity
+    meta["old_label_source"] = label_source
+    meta["tag_mode"] = tag_mode
 
-        uniq = old_label_names[:]
-        mapped = [n for n in uniq if mapping.get(n, "O") != "O"]
-        unmapped = [n for n in uniq if mapping.get(n, "O") == "O" and n != "O"]
-        coverage["mapped_label_names"] = mapped
-        coverage["unmapped_label_names"] = unmapped
-        coverage["mapped_count"] = int(len(mapped))
-        coverage["total_count"] = int(len(uniq))
-        coverage["coverage_ratio"] = float(len(mapped) / max(1, len(uniq)))
-        return ds2, new_label_names, coverage
+    def fn(ex):
+        return _map_one_example(ex, old_label_names, old_to_entity, new_label2id)
 
-    if tag_mode == "str":
-        uniq = set()
-        N = min(50000, len(ds_raw["train"]))
-        for ex in ds_raw["train"].select(range(N)):
-            for lab in ex["ner_tags"]:
-                uniq.add(str(lab))
-        uniq_list = sorted(uniq)
-
-        def _map_example(ex):
-            out = []
-            for lab in ex["ner_tags"]:
-                mapped = mapping.get(str(lab), "O")
-                out.append(new_label2id.get(mapped, 0))
-            ex["ner_tags"] = out
-            return ex
-
-        ds2 = ds_raw.map(_map_example)
-
-        mapped = [n for n in uniq_list if mapping.get(n, "O") != "O"]
-        unmapped = [n for n in uniq_list if mapping.get(n, "O") == "O" and n != "O"]
-        coverage["mapped_label_names"] = mapped
-        coverage["unmapped_label_names"] = unmapped
-        coverage["mapped_count"] = int(len(mapped))
-        coverage["total_count"] = int(len(uniq_list))
-        coverage["coverage_ratio"] = float(len(mapped) / max(1, len(uniq_list)))
-        return ds2, new_label_names, coverage
-
-    raise RuntimeError(f"Unsupported tag_mode={tag_mode}")
+    ds_proc = DatasetDict({k: ds_raw[k].map(fn) for k in ds_raw.keys()})
+    return ds_proc, meta
 
 
-def _length_stats(ds_split) -> Dict[str, float]:
-    lens = [len(x) for x in ds_split["tokens"]]
-    if not lens:
-        return {"mean": 0.0, "median": 0.0, "min": 0.0, "max": 0.0}
-    return {
-        "mean": float(statistics.mean(lens)),
-        "median": float(statistics.median(lens)),
-        "min": float(min(lens)),
-        "max": float(max(lens)),
-    }
-
-
-def _label_counts(ds_split, label_names: List[str]) -> Dict[str, int]:
-    counts = {n: 0 for n in label_names}
-    for seq in ds_split["ner_tags"]:
-        for t in seq:
+def _label_counts(ds: Dataset, label_names: List[str]) -> Dict[str, int]:
+    counts: Dict[str, int] = {n: 0 for n in label_names}
+    for ex in ds:
+        for t in ex["ner_tags"]:
             counts[label_names[int(t)]] += 1
     return counts
 
 
-def _bio_issues(ds_split, label_names: List[str]) -> Dict[str, int]:
-    issues = 0
-    total = 0
-    for seq in ds_split["ner_tags"]:
-        prev_type = "O"
-        for t in seq:
-            total += 1
-            lab = label_names[int(t)]
-            if lab.startswith("I-"):
-                cur_type = lab[2:]
-                if prev_type != cur_type:
-                    issues += 1
-                prev_type = cur_type
-            elif lab.startswith("B-"):
-                prev_type = lab[2:]
-            else:
-                prev_type = "O"
-    return {"i_without_prev_same_entity": int(issues), "total_tags": int(total)}
+def _dataset_stats(ds: DatasetDict, label_names: List[str]) -> Dict[str, Any]:
+    stats: Dict[str, Any] = {}
+    for split in ds.keys():
+        lengths = [len(x) for x in ds[split]["tokens"]]
+        stats[split] = {
+            "n": int(len(ds[split])),
+            "len_min": int(min(lengths)) if lengths else 0,
+            "len_max": int(max(lengths)) if lengths else 0,
+            "len_mean": float(statistics.mean(lengths)) if lengths else 0.0,
+            "len_med": float(statistics.median(lengths)) if lengths else 0.0,
+            "label_counts": _label_counts(ds[split], label_names),
+        }
+    return stats
 
 
 def _has_any_entity(example) -> bool:
@@ -327,14 +340,6 @@ def _simple_tokenize(text: str, max_len: int = 128) -> List[str]:
 
 
 def _weak_pseudo_label(tokens: List[str]) -> List[str]:
-    """
-    Weak labeling (pseudo-labeling) for IT-domain NER using regex + gazetteers.
-
-    Notes:
-    - This is intentionally conservative: it aims for high precision, not recall.
-    - Supports multi-token phrases (e.g., "Windows 11", "Visual Studio Code", "Google Chrome")
-      by tagging them as a BIO span.
-    """
     os_terms = {
         "windows", "win10", "win11", "ubuntu", "debian", "linux", "macos", "android", "ios",
     }
@@ -342,32 +347,48 @@ def _weak_pseudo_label(tokens: List[str]) -> List[str]:
         "router", "switch", "server", "laptop", "cpu", "gpu", "ssd", "hdd", "ram", "keyboard", "mouse",
     }
     sw_terms = {
-        "docker", "kubernetes", "chrome", "firefox", "nginx", "apache", "postgres", "mysql", "mongodb",
-        "redis", "node", "nodejs", "python", "java", "dotnet", ".net", "git", "github", "gitlab",
-        "jira", "slack", "vpn", "vscode", "powershell",
+        "docker", "kubernetes", "helm",
+        "chrome", "firefox", "edge",
+        "nginx", "apache",
+        "postgres", "postgresql", "mysql", "mariadb", "mongodb",
+        "redis", "elasticsearch",
+        "node", "nodejs", "npm", "yarn",
+        "python", "pip", "conda",
+        "java", "maven", "gradle",
+        "dotnet", ".net", "nuget",
+        "git", "github", "gitlab",
+        "jira", "confluence", "slack", "teams",
+        "vpn", "vscode", "visualstudio", "powershell", "bash", "zsh",
+        "aws", "azure", "gcp",
     }
     err_terms = {"error", "exception", "crash", "failed", "failure", "timeout", "traceback", "stacktrace", "bug"}
 
-    # multi-token phrases (lowercased) -> entity
     phrase_map = {
         ("windows", "11"): "OS",
         ("windows", "10"): "OS",
+        ("windows", "7"): "OS",
+        ("windows", "8.1"): "OS",
+        ("windows", "server"): "OS",
+        ("windows", "server", "2019"): "OS",
+        ("windows", "server", "2022"): "OS",
         ("visual", "studio", "code"): "SOFTWARE",
+        ("visual", "studio"): "SOFTWARE",
         ("vs", "code"): "SOFTWARE",
         ("google", "chrome"): "SOFTWARE",
         ("microsoft", "edge"): "SOFTWARE",
+        ("microsoft", "teams"): "SOFTWARE",
+        ("office", "365"): "SOFTWARE",
+        ("microsoft", "office"): "SOFTWARE",
     }
 
     ver_re = re.compile(r"^(v)?\d+(\.\d+){1,4}([a-z0-9\-]+)?$", re.IGNORECASE)
     kb_re = re.compile(r"^KB\d+$", re.IGNORECASE)
+    winver_re = re.compile(r"^\d{2}h\d$", re.IGNORECASE)
+    build_re = re.compile(r"^\d{4,6}$")
 
     labels = ["O"] * len(tokens)
 
-    def can_write(i: int) -> bool:
-        return 0 <= i < len(labels) and labels[i] == "O"
-
     def mark_span(i0: int, i1: int, ent: str) -> None:
-        """Mark [i0, i1) as BIO span, if all tokens are currently 'O'."""
         if i0 < 0 or i1 > len(tokens) or i0 >= i1:
             return
         if any(labels[i] != "O" for i in range(i0, i1)):
@@ -376,7 +397,6 @@ def _weak_pseudo_label(tokens: List[str]) -> List[str]:
         for i in range(i0 + 1, i1):
             labels[i] = f"I-{ent}"
 
-    # 1) Multi-token phrases first (longer first to avoid partial overlaps)
     max_phrase_len = max((len(k) for k in phrase_map.keys()), default=0)
     toks_l = [t.lower() for t in tokens]
     for n in range(max_phrase_len, 1, -1):
@@ -386,20 +406,29 @@ def _weak_pseudo_label(tokens: List[str]) -> List[str]:
             if ent:
                 mark_span(i, i + n, ent)
 
-    # 2) Single-token heuristics
     for i, t in enumerate(tokens):
         tl = t.lower()
 
-        # Skip if already labeled by a phrase
         if labels[i] != "O":
             continue
 
-        # VERSION-like tokens
-        if kb_re.match(t) or ver_re.match(tl) or tl in {"rc1", "rc2", "beta", "alpha"}:
+        prev = tokens[i - 1].lower() if i > 0 else ""
+
+        if (
+            kb_re.match(t)
+            or ver_re.match(tl)
+            or winver_re.match(tl)
+            or tl in {"rc1", "rc2", "beta", "alpha"}
+            or (build_re.match(t) and prev in {"build", "ver", "version"})
+        ):
             mark_span(i, i + 1, "VERSION")
             continue
 
-        # OS / hardware / software / error
+        stack_re = re.compile(r"^[a-z]{2,}(\d+(\.\d+)+)$", re.IGNORECASE)
+        if stack_re.match(tl):
+            mark_span(i, i + 1, "SOFTWARE")
+            continue
+
         if tl in os_terms:
             mark_span(i, i + 1, "OS")
             continue
@@ -413,7 +442,6 @@ def _weak_pseudo_label(tokens: List[str]) -> List[str]:
             mark_span(i, i + 1, "SOFTWARE")
             continue
 
-    # 3) Simple pattern: "<OS> <number>" if both are still O (e.g., "Windows 11")
     for i in range(len(tokens) - 1):
         if labels[i] != "O" or labels[i + 1] != "O":
             continue
@@ -423,17 +451,11 @@ def _weak_pseudo_label(tokens: List[str]) -> List[str]:
     return labels
 
 
-def _bio_to_ids(bio: List[str], label2id: Dict[str, int]) -> List[int]:
-    out: List[int] = []
-    for lab in bio:
-        out.append(int(label2id.get(lab, 0)))
-    return out
-
-
 def build_weak_dataset(
     weak_dataset_name: str,
     sample_n: int,
     max_len: int,
+    min_len: int,
     seed: int,
 ) -> Dataset:
     env_token = os.getenv("HF_TOKEN", "").strip()
@@ -457,6 +479,7 @@ def build_weak_dataset(
 
     items_tokens: List[List[str]] = []
     items_tags: List[List[int]] = []
+    seen: set[str] = set()
 
     label_names = _new_label_vocab()
     label2id = {n: i for i, n in enumerate(label_names)}
@@ -466,7 +489,11 @@ def build_weak_dataset(
         if not text:
             continue
         toks = _simple_tokenize(text, max_len=max_len)
-        if len(toks) < 5:
+        toks_key = " ".join([t.lower() for t in toks])
+        if toks_key in seen:
+            continue
+        seen.add(toks_key)
+        if len(toks) < int(min_len):
             continue
         bio = _weak_pseudo_label(toks)
         tag_ids = _bio_to_ids(bio, label2id)
@@ -491,7 +518,13 @@ def mix_gold_and_weak(
     use_n = min(target_weak, len(weak_ds))
     weak_sel = weak_ds.shuffle(seed=seed).select(range(use_n))
     mixed = concatenate_datasets([gold_train, weak_sel])
-    meta = {"enabled": True, "weak_ratio": float(weak_ratio), "weak_used": int(use_n), "gold_train": int(len(gold_train)), "train_after_mix": int(len(mixed))}
+    meta = {
+        "enabled": True,
+        "weak_ratio": float(weak_ratio),
+        "weak_used": int(use_n),
+        "gold_train": int(len(gold_train)),
+        "train_after_mix": int(len(mixed)),
+    }
     return mixed, meta
 
 
@@ -505,6 +538,7 @@ def prepare_dataset(
     weak_dataset_name: Optional[str] = None,
     weak_sample_n: int = 50000,
     weak_max_len: int = 128,
+    weak_min_len: int = 8,
     weak_ratio: float = 0.5,
 ) -> Dict[str, Any]:
     paths = ProjectPaths.from_root(root)
@@ -540,101 +574,60 @@ def prepare_dataset(
         logger.info("Overwriting raw cache at: %s", raw_path)
         save_dataset(ds_raw, raw_path)
 
-    if tag_mode not in {"int", "str"}:
-        raise RuntimeError(f"Unsupported ner_tags type (tag_mode={tag_mode}).")
+    if old_label_names is None:
+        old_label_names = _infer_old_label_names_fallback(ds_raw, tag_mode=tag_mode)
 
-    if tag_mode == "int":
-        if not old_label_names:
-            raise RuntimeError("int ner_tags but still no label names. Use force_redownload=True.")
-        labels_for_map = old_label_names
-    else:
-        uniq = set()
-        N = min(50000, len(ds_raw["train"]))
-        for ex in ds_raw["train"].select(range(N)):
-            for lab in ex["ner_tags"]:
-                uniq.add(str(lab))
-        labels_for_map = sorted(uniq)
+    logger.info("Tag mode: %s", tag_mode)
+    logger.info("Old labels: %s", str(old_label_names)[:200])
 
-    mapping = build_entity_map_from_labels(labels_for_map)
+    ds_proc, meta = map_dataset_to_new_schema(ds_raw, old_label_names, tag_mode=tag_mode)
+    label_names = meta["new_label_names"]
 
-    write_json(
-        paths.data / "dataset_meta.json",
-        {
-            "dataset": dataset_name,
-            "tag_mode": tag_mode,
-            "original_num_labels": (len(old_label_names) if old_label_names else None),
-            "original_label_names": old_label_names,
-            "labels_for_map_count": int(len(labels_for_map)),
-        },
-    )
-
-    logger.info("Remapping labels to 5-entity schema (mode=%s)", tag_mode)
-    ds_proc, new_label_names, coverage = remap_ner_tags(ds_raw, mapping, old_label_names, tag_mode)
-
-    weak_meta = {"enabled": False}
-    if weak_dataset_name:
-        logger.info("Building weak dataset: %s (sample_n=%d)", weak_dataset_name, int(weak_sample_n))
-        weak_ds = build_weak_dataset(
-            weak_dataset_name=weak_dataset_name,
-            sample_n=int(weak_sample_n),
-            max_len=int(weak_max_len),
-            seed=int(seed),
-        )
-        mixed_train, weak_meta = mix_gold_and_weak(
-            gold_train=ds_proc["train"],
-            weak_ds=weak_ds,
-            weak_ratio=float(weak_ratio),
-            seed=int(seed),
-        )
-        ds_proc = DatasetDict({**ds_proc, "train": mixed_train})
-
-    ds_proc, oversample_meta = oversample_train(
-        ds_proc=ds_proc,
-        label_names=new_label_names,
+    ds_proc2, overs_meta = oversample_train(
+        ds_proc,
+        label_names,
         factor=float(oversample_factor),
         rare_boost=float(rare_boost),
         seed=int(seed),
     )
+    meta["oversample"] = overs_meta
 
-    eda = {
-        "splits": {k: int(len(v)) for k, v in ds_proc.items()},
-        "train_token_length": _length_stats(ds_proc["train"]),
-        "train_label_counts": _label_counts(ds_proc["train"], new_label_names),
-        "bio_warnings_train": _bio_issues(ds_proc["train"], new_label_names),
-    }
-
-    processed_meta = {
-        "dataset": dataset_name,
-        "tag_mode": tag_mode,
-        "new_label_names": new_label_names,
-        "new_num_labels": int(len(new_label_names)),
-        "mapping_coverage": coverage,
-        "weak_data": weak_meta,
-        "oversampling": oversample_meta,
-        "eda": eda,
-        "domain_adaptation": {
-            "target_domain": "IT support / software engineering text",
-            "task": "domain-specific NER with compact schema (5 entities)",
-        },
-    }
-
-    write_json(paths.data / "processed_meta.json", processed_meta)
+    weak_meta = {"enabled": False}
+    if weak_dataset_name:
+        logger.info("Building weak dataset: %s", weak_dataset_name)
+        weak_ds = build_weak_dataset(
+            weak_dataset_name,
+            sample_n=int(weak_sample_n),
+            max_len=int(weak_max_len),
+            min_len=int(weak_min_len),
+            seed=int(seed),
+        )
+        mixed, mix_meta = mix_gold_and_weak(
+            ds_proc2["train"],
+            weak_ds,
+            weak_ratio=float(weak_ratio),
+            seed=int(seed),
+        )
+        ds_proc2 = DatasetDict({**ds_proc2, "train": mixed})
+        weak_meta = {
+            "enabled": True,
+            "weak_dataset": weak_dataset_name,
+            "weak_sample_n": int(weak_sample_n),
+            "weak_max_len": int(weak_max_len),
+            "weak_min_len": int(weak_min_len),
+            "mix": mix_meta,
+        }
+    meta["weak"] = weak_meta
 
     logger.info("Saving processed dataset to: %s", processed_path)
-    save_dataset(ds_proc, processed_path)
-    logger.info("Done")
+    save_dataset(ds_proc2, processed_path)
 
-    ratio = float(coverage.get("coverage_ratio", 0.0))
-    if ratio < 0.5:
-        logger.warning("Low mapping coverage (ratio=%.3f). Consider expanding keyword rules.", ratio)
+    stats = _dataset_stats(ds_proc2, label_names)
+    meta["stats"] = stats
+    meta["dataset_key"] = key
 
-    return processed_meta
+    write_json(paths.data / "processed_meta.json", {"new_label_names": label_names, "meta": meta})
+    write_json(paths.data / "dataset_meta.json", meta)
 
-
-def main() -> None:
-    prepare_dataset(root=".")
-    print("Dataset prepared.")
-
-
-if __name__ == "__main__":
-    main()
+    logger.info("Done. Splits: %s", {k: len(ds_proc2[k]) for k in ds_proc2.keys()})
+    return meta

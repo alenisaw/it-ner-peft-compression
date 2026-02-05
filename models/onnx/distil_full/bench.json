@@ -1,0 +1,86 @@
+{
+  "run": "distil_full",
+  "bench_n": 200,
+  "seq_len": 128,
+  "opset": 18,
+  "input_names": [
+    "input_ids",
+    "attention_mask"
+  ],
+  "output_names": [
+    "logits"
+  ],
+  "onnx_fp16_path": "C:\\Users\\alenk\\Downloads\\it-ner-peft-compression\\models\\onnx\\distil_full\\model.fp16.onnx",
+  "onnx_fp16_size_mb": 0.7926912307739258,
+  "onnx_fp32_path": "C:\\Users\\alenk\\Downloads\\it-ner-peft-compression\\models\\onnx\\distil_full\\model.fp32.onnx",
+  "onnx_fp32_size_mb": 0.786865234375,
+  "providers": {
+    "available": [
+      "AzureExecutionProvider",
+      "CPUExecutionProvider"
+    ],
+    "cuda_available": false,
+    "trt_available": false
+  },
+  "device": {
+    "cuda_device": "NVIDIA GeForce RTX 3070 Ti Laptop GPU",
+    "cuda_capability": [
+      8,
+      6
+    ]
+  },
+  "profiles": {
+    "torch_fp32_cuda": {
+      "status": "ok",
+      "latency_sec": {
+        "avg_sec": 0.0039960110071115195,
+        "p50_sec": 0.003556150128133595,
+        "p95_sec": 0.005800984927918761
+      }
+    },
+    "torch_fp16_cuda": {
+      "status": "ok",
+      "latency_sec": {
+        "avg_sec": 0.004611984000075608,
+        "p50_sec": 0.004195399931631982,
+        "p95_sec": 0.0068643100908957365
+      }
+    },
+    "ort_cpu_fp32": {
+      "status": "ok",
+      "latency_sec": {
+        "avg_sec": 0.03037093550548889,
+        "p50_sec": 0.023353699943982065,
+        "p95_sec": 0.03565326483221719
+      },
+      "provider": "CPUExecutionProvider",
+      "precision": "fp32"
+    },
+    "ort_cuda_fp16": {
+      "status": "ok",
+      "latency_sec": {
+        "avg_sec": 0.03037093550548889,
+        "p50_sec": 0.023353699943982065,
+        "p95_sec": 0.03565326483221719
+      },
+      "provider": "CPUExecutionProvider",
+      "precision": "fp32",
+      "fallback": true,
+      "fallback_reason": "CUDAExecutionProvider not available; using CPUExecutionProvider",
+      "fallback_from": "ort_cpu_fp32"
+    },
+    "ort_trt_fp16": {
+      "status": "ok",
+      "latency_sec": {
+        "avg_sec": 0.03037093550548889,
+        "p50_sec": 0.023353699943982065,
+        "p95_sec": 0.03565326483221719
+      },
+      "provider": "CPUExecutionProvider",
+      "precision": "fp32",
+      "fallback": true,
+      "fallback_reason": "TensorrtExecutionProvider not available; using CUDAExecutionProvider",
+      "fallback_from": "ort_cuda_fp16"
+    }
+  }
+}

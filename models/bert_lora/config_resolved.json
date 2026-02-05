@@ -26,27 +26,45 @@
   "max_train_samples": null,
   "max_eval_samples": null,
   "effective_batch": 16,
+  "lr_effective": 0.0001,
+  "label_smoothing": 0.05,
+  "lr_scheduler": "cosine",
+  "max_grad_norm": 1.0,
+  "metric_for_best_model": "eval_f1",
+  "greater_is_better": true,
+  "early_stopping_patience": 1,
+  "early_stopping_threshold": 0.0,
+  "group_by_length": true,
   "lora": {
     "enabled": true,
-    "epochs": 10,
-    "r": 8,
-    "alpha": 16,
+    "r": 16,
+    "alpha": 32,
     "dropout": 0.05,
     "bias": "none",
     "target_modules": [
       "query",
-      "value"
+      "key",
+      "value",
+      "dense"
     ],
     "modules_to_save": [
       "classifier"
-    ]
+    ],
+    "lr": 0.0001
   },
-  "batch_size": 8,
-  "grad_accum": 2,
-  "epochs": 5.0,
-  "lr": 2e-05,
+  "model_cfg": {
+    "hidden_dropout_prob": 0.1,
+    "attention_probs_dropout_prob": 0.1,
+    "classifier_dropout": 0.2,
+    "dropout": 0.1,
+    "attention_dropout": 0.1
+  },
+  "batch_size": 16,
+  "grad_accum": 1,
+  "epochs": 6.0,
+  "lr": 0.0001,
   "weight_decay": 0.01,
-  "warmup_ratio": 0.1,
-  "eval_batch_size": 8,
-  "dataloader_num_workers": 2
+  "warmup_ratio": 0.06,
+  "eval_batch_size": 16,
+  "dataloader_num_workers": 4
 }

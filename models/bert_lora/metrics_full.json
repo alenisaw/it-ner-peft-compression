@@ -1,0 +1,110 @@
+{
+  "overall": {
+    "precision": 0.6943268416596104,
+    "recall": 0.7550644567219152,
+    "f1": 0.7234230260255844,
+    "accuracy": 0.9871316263340507
+  },
+  "per_entity": {
+    "ERROR": {
+      "precision": 0.07692307692307693,
+      "recall": 0.05555555555555555,
+      "f1": 0.06451612903225808,
+      "number": 18.0
+    },
+    "HARDWARE": {
+      "precision": 0.7291666666666666,
+      "recall": 0.660377358490566,
+      "f1": 0.693069306930693,
+      "number": 53.0
+    },
+    "OS": {
+      "precision": 0.7972972972972973,
+      "recall": 0.8939393939393939,
+      "f1": 0.8428571428571429,
+      "number": 66.0
+    },
+    "SOFTWARE": {
+      "precision": 0.6781115879828327,
+      "recall": 0.7541766109785203,
+      "f1": 0.7141242937853107,
+      "number": 838.0
+    },
+    "VERSION": {
+      "precision": 0.8157894736842105,
+      "recall": 0.8378378378378378,
+      "f1": 0.8266666666666665,
+      "number": 111.0
+    }
+  },
+  "resolved": {
+    "run": "bert_lora",
+    "base_model": "bert-base-cased",
+    "use_lora": true,
+    "dataset": "mrm8488/stackoverflow-ner",
+    "seed": 13,
+    "max_length": 128,
+    "label_all_tokens": false,
+    "num_labels": 11,
+    "label_names": [
+      "O",
+      "B-ERROR",
+      "B-HARDWARE",
+      "B-OS",
+      "B-SOFTWARE",
+      "B-VERSION",
+      "I-ERROR",
+      "I-HARDWARE",
+      "I-OS",
+      "I-SOFTWARE",
+      "I-VERSION"
+    ],
+    "fp16": true,
+    "tf32": true,
+    "gradient_checkpointing": true,
+    "max_train_samples": null,
+    "max_eval_samples": null,
+    "effective_batch": 16,
+    "lr_effective": 0.0001,
+    "label_smoothing": 0.05,
+    "lr_scheduler": "cosine",
+    "max_grad_norm": 1.0,
+    "metric_for_best_model": "eval_f1",
+    "greater_is_better": true,
+    "early_stopping_patience": 1,
+    "early_stopping_threshold": 0.0,
+    "group_by_length": true,
+    "lora": {
+      "enabled": true,
+      "r": 16,
+      "alpha": 32,
+      "dropout": 0.05,
+      "bias": "none",
+      "target_modules": [
+        "query",
+        "key",
+        "value",
+        "dense"
+      ],
+      "modules_to_save": [
+        "classifier"
+      ],
+      "lr": 0.0001
+    },
+    "model_cfg": {
+      "hidden_dropout_prob": 0.1,
+      "attention_probs_dropout_prob": 0.1,
+      "classifier_dropout": 0.2,
+      "dropout": 0.1,
+      "attention_dropout": 0.1
+    },
+    "batch_size": 16,
+    "grad_accum": 1,
+    "epochs": 6.0,
+    "lr": 0.0001,
+    "weight_decay": 0.01,
+    "warmup_ratio": 0.06,
+    "eval_batch_size": 16,
+    "dataloader_num_workers": 4
+  }
+}

@@ -1,5 +1,4 @@
-# src/train.py
-"""
+﻿"""
 Training for IT-domain NER (full fine-tuning vs LoRA PEFT vs DistilBERT).
 
 Notebook-friendly:
@@ -29,12 +28,16 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+import evaluate
+import numpy as np
 import torch
 from datasets import DatasetDict, load_from_disk
 from transformers import (
+    AutoConfig,
     AutoModelForTokenClassification,
     AutoTokenizer,
     DataCollatorForTokenClassification,
+    EarlyStoppingCallback,
     Trainer,
     TrainingArguments,
     set_seed,
@@ -118,14 +121,19 @@ def _make_model_tokenizer(
     use_lora: bool,
     lora_cfg: Dict[str, Any],
     gradient_checkpointing: bool,
+    model_cfg: Dict[str, Any],
 ):
     tokenizer = AutoTokenizer.from_pretrained(base_model, use_fast=True)
-    model = AutoModelForTokenClassification.from_pretrained(
-        base_model,
-        num_labels=int(num_labels),
-        id2label=id2label,
-        label2id=label2id,
-    )
+    cfg = AutoConfig.from_pretrained(base_model)
+    for k, v in model_cfg.items():
+        if v is None:
+            continue
+        if hasattr(cfg, k):
+            setattr(cfg, k, v)
+    cfg.num_labels = int(num_labels)
+    cfg.id2label = dict(id2label)
+    cfg.label2id = dict(label2id)
+    model = AutoModelForTokenClassification.from_pretrained(base_model, config=cfg)
 
     if gradient_checkpointing and hasattr(model, "gradient_checkpointing_enable"):
         model.gradient_checkpointing_enable()
@@ -137,17 +145,20 @@ def _make_model_tokenizer(
         target_modules = lora_cfg.get("target_modules", None)
         if target_modules is None:
             target_modules = ["query", "value"]
+        else:
+            target_modules = list(target_modules)
 
         modules_to_save = lora_cfg.get("modules_to_save", ["classifier"])
+        modules_to_save = list(modules_to_save)
 
         cfg = LoraConfig(
             task_type=TaskType.TOKEN_CLS,
-            r=int(lora_cfg["r"]),
-            lora_alpha=int(lora_cfg["alpha"]),
-            lora_dropout=float(lora_cfg["dropout"]),
+            r=int(lora_cfg.get("r", 16)),
+            lora_alpha=int(lora_cfg.get("alpha", 32)),
+            lora_dropout=float(lora_cfg.get("dropout", 0.05)),
             bias=str(lora_cfg.get("bias", "none")),
-            target_modules=list(target_modules),
-            modules_to_save=list(modules_to_save),
+            target_modules=target_modules,
+            modules_to_save=modules_to_save,
         )
         model = get_peft_model(model, cfg)
 
@@ -176,8 +187,6 @@ def _is_oom(e: BaseException) -> bool:
 def _set_tf32_enabled(enabled: bool) -> None:
     if not enabled:
         return
-
-    # New torch API (preferred) – avoids deprecation warnings from old flags.
     try:
         if hasattr(torch.backends, "cuda") and hasattr(torch.backends.cuda, "matmul"):
             mm = torch.backends.cuda.matmul
@@ -188,10 +197,6 @@ def _set_tf32_enabled(enabled: bool) -> None:
 
 
 def _backup_existing_run_dir(run_dir: Path, logger) -> None:
-    """
-    Prevent losing previous results when re-running the same `run_name`.
-    Moves existing `models/<run>/` to `models/<run>__bak__YYYYmmdd_HHMMSS`.
-    """
     if not run_dir.exists():
         return
     stamp = _dt.datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -203,6 +208,51 @@ def _backup_existing_run_dir(run_dir: Path, logger) -> None:
         logger.warning("Could not backup existing run dir (%s). Will reuse/overwrite. Error: %s", run_dir, e)
 
 
+def _make_compute_metrics(id2label: Dict[int, str]):
+    seqeval = evaluate.load("seqeval")
+
+    def compute(eval_pred):
+        preds = np.argmax(eval_pred.predictions, axis=-1)
+        label_ids = eval_pred.label_ids
+
+        true_predictions: List[List[str]] = []
+        true_labels: List[List[str]] = []
+
+        for pred_row, label_row in zip(preds, label_ids):
+            sent_preds: List[str] = []
+            sent_labels: List[str] = []
+            for p, l in zip(pred_row, label_row):
+                if int(l) == -100:
+                    continue
+                sent_preds.append(id2label[int(p)])
+                sent_labels.append(id2label[int(l)])
+            true_predictions.append(sent_preds)
+            true_labels.append(sent_labels)
+
+        out = seqeval.compute(predictions=true_predictions, references=true_labels, zero_division=0)
+        return {
+            "precision": float(out.get("overall_precision", 0.0)),
+            "recall": float(out.get("overall_recall", 0.0)),
+            "f1": float(out.get("overall_f1", 0.0)),
+            "accuracy": float(out.get("overall_accuracy", 0.0)),
+        }
+
+    return compute
+
+
+def _metric_settings(cfg_train: Dict[str, Any], has_eval: bool) -> Tuple[str, bool]:
+    if not has_eval:
+        return "eval_loss", False
+    metric = str(cfg_train.get("metric_for_best_model", "eval_f1")).strip()
+    if not metric.startswith("eval_"):
+        metric = f"eval_{metric}"
+    if "loss" in metric:
+        greater = False
+    else:
+        greater = bool(cfg_train.get("greater_is_better", True))
+    return metric, greater
+
+
 def _make_training_args(
     run_dir: Path,
     cfg_train: Dict[str, Any],
@@ -210,6 +260,9 @@ def _make_training_args(
     logging_steps: int,
     save_total_limit: int,
     num_workers: int,
+    seed: int,
+    metric_for_best_model: str,
+    greater_is_better: bool,
 ) -> TrainingArguments:
     sig = inspect.signature(TrainingArguments.__init__).parameters
 
@@ -227,16 +280,23 @@ def _make_training_args(
         gradient_accumulation_steps=int(cfg_train["grad_accum"]),
         num_train_epochs=float(cfg_train["epochs"]),
         fp16=bool(fp16),
+        label_smoothing_factor=float(cfg_train["label_smoothing"]),
+        lr_scheduler_type=str(cfg_train["lr_scheduler"]),
+        max_grad_norm=float(cfg_train["max_grad_norm"]),
         report_to=[],
         load_best_model_at_end=True,
-        metric_for_best_model="eval_loss",
-        greater_is_better=False,
+        metric_for_best_model=str(metric_for_best_model),
+        greater_is_better=bool(greater_is_better),
         save_total_limit=int(save_total_limit),
         dataloader_num_workers=int(num_workers),
         optim="adamw_torch",
+        seed=int(seed),
+        data_seed=int(seed),
     )
 
-    # transformers compatibility: evaluation_strategy -> eval_strategy
+    if "group_by_length" in sig:
+        kwargs["group_by_length"] = bool(cfg_train.get("group_by_length", False))
+
     if "evaluation_strategy" in sig:
         kwargs["evaluation_strategy"] = "epoch"
     else:
@@ -256,10 +316,26 @@ def _train_once(
     logging_steps: int,
     save_total_limit: int,
     num_workers: int,
+    seed: int,
+    early_stopping_patience: int,
+    early_stopping_threshold: float,
+    compute_metrics,
+    metric_for_best_model: str,
+    greater_is_better: bool,
     logger,
 ) -> Tuple[Dict[str, Any], Dict[str, Any], List[Dict[str, Any]]]:
     collator = DataCollatorForTokenClassification(tokenizer)
-    training_args = _make_training_args(run_dir, cfg_train, fp16, logging_steps, save_total_limit, num_workers)
+    training_args = _make_training_args(
+        run_dir,
+        cfg_train,
+        fp16,
+        logging_steps,
+        save_total_limit,
+        num_workers,
+        seed,
+        metric_for_best_model,
+        greater_is_better,
+    )
 
     trainer_kwargs = dict(
         model=model,
@@ -269,10 +345,22 @@ def _train_once(
         data_collator=collator,
     )
 
-    # transformers compatibility: some versions deprecate/rename tokenizer arg
     tr_sig = inspect.signature(Trainer.__init__).parameters
     if "tokenizer" in tr_sig:
         trainer_kwargs["tokenizer"] = tokenizer
+    if compute_metrics is not None:
+        trainer_kwargs["compute_metrics"] = compute_metrics
+
+    callbacks = []
+    if eval_ds is not None and int(early_stopping_patience) > 0:
+        callbacks.append(
+            EarlyStoppingCallback(
+                early_stopping_patience=int(early_stopping_patience),
+                early_stopping_threshold=float(early_stopping_threshold),
+            )
+        )
+    if callbacks:
+        trainer_kwargs["callbacks"] = callbacks
 
     trainer = Trainer(**trainer_kwargs)
 
@@ -304,24 +392,73 @@ def train_run(
     paths = ProjectPaths.from_root(root)
     paths.ensure()
 
-    cfg = read_yaml(Path(config_path))
-    dataset_name = str(cfg["project"]["dataset"])
-    seed = int(cfg["project"]["seed"])
+    cfg = read_yaml(Path(config_path)) or {}
 
-    max_length = int(cfg["data"]["max_length"])
-    label_all_tokens = bool(cfg["data"]["label_all_tokens"])
+    project_cfg = cfg.get("project", {}) if isinstance(cfg.get("project", {}), dict) else {}
 
-    tcfg = dict(cfg["train"])
+    dataset_name = (
+        project_cfg.get("dataset")
+        or cfg.get("dataset")
+        or cfg.get("dataset_name")
+        or (cfg.get("data", {}) or {}).get("dataset")
+        or (cfg.get("data_prep", {}) or {}).get("dataset")
+        or (cfg.get("data_prep", {}) or {}).get("dataset_name")
+        or "mrm8488/stackoverflow-ner"
+    )
+    seed = int(
+        project_cfg.get("seed")
+        or cfg.get("seed")
+        or (cfg.get("train", {}) or {}).get("seed")
+        or (cfg.get("data", {}) or {}).get("seed")
+        or (cfg.get("data_prep", {}) or {}).get("seed")
+        or 13
+    )
+
+    data_cfg = cfg.get("data", {}) if isinstance(cfg.get("data", {}), dict) else {}
+    max_length = int(data_cfg.get("max_length", data_cfg.get("max_len", cfg.get("max_length", 128))))
+    label_all_tokens = bool(data_cfg.get("label_all_tokens", cfg.get("label_all_tokens", False)))
+
+    tcfg = cfg.get("train", {}) if isinstance(cfg.get("train", {}), dict) else {}
+    tcfg = dict(tcfg)
+
+    tcfg.setdefault("epochs", 3)
+    tcfg.setdefault("lr", 2e-5)
+    tcfg.setdefault("weight_decay", 0.01)
+    tcfg.setdefault("warmup_ratio", 0.06)
+    tcfg.setdefault("batch_size", 8)
+    tcfg.setdefault("eval_batch_size", 16)
+    tcfg.setdefault("grad_accum", 1)
+    tcfg.setdefault("fp16", True)
+    tcfg.setdefault("tf32", True)
+    tcfg.setdefault("gradient_checkpointing", True)
+    tcfg.setdefault("logging_steps", 50)
+    tcfg.setdefault("save_total_limit", 2)
+    tcfg.setdefault("dataloader_num_workers", 2)
+    tcfg.setdefault("label_smoothing", 0.0)
+    tcfg.setdefault("lr_scheduler", "linear")
+    tcfg.setdefault("max_grad_norm", 1.0)
+    tcfg.setdefault("early_stopping_patience", 0)
+    tcfg.setdefault("early_stopping_threshold", 0.0)
+    tcfg.setdefault("metric_for_best_model", "eval_f1")
+    tcfg.setdefault("greater_is_better", True)
+    tcfg.setdefault("group_by_length", False)
+
     max_train_samples = tcfg.get("max_train_samples", None)
     max_eval_samples = tcfg.get("max_eval_samples", None)
 
-    lcfg = dict(cfg.get("lora", {}))
+    lcfg = cfg.get("lora", {}) if isinstance(cfg.get("lora", {}), dict) else {}
+    lcfg = dict(lcfg)
+    mcfg = cfg.get("model", {}) if isinstance(cfg.get("model", {}), dict) else {}
+    mcfg = dict(mcfg)
+
     run_spec = _pick_run(run, bool(lcfg.get("enabled", True)))
+
+    if run_spec.use_lora and (lcfg.get("lr") is not None):
+        tcfg["lr"] = float(lcfg["lr"])
 
     run_dir = paths.models / run_spec.run_name
     logger = setup_logger(run_dir / "run.log", "train")
 
-    # IMPORTANT: backup before overwrite, so your previous 3-epoch run doesn't disappear
     _backup_existing_run_dir(run_dir, logger)
     run_dir.mkdir(parents=True, exist_ok=True)
 
@@ -341,12 +478,14 @@ def train_run(
     logger.info("Base model: %s", run_spec.base_model)
     logger.info("Use LoRA: %s", run_spec.use_lora)
     logger.info("Dataset: %s", dataset_name)
+    logger.info("Seed: %s", seed)
     logger.info("CUDA: %s | fp16: %s | tf32: %s | grad_ckpt: %s", use_cuda, fp16, tf32, grad_ckpt)
+    logger.info("LR (effective): %s", tcfg.get("lr"))
 
     if tf32:
         _set_tf32_enabled(True)
 
-    ds = _load_processed_dataset(paths, dataset_name)
+    ds = _load_processed_dataset(paths, str(dataset_name))
     label_names = _load_label_names(paths)
     label2id = {n: i for i, n in enumerate(label_names)}
     id2label = {i: n for i, n in enumerate(label_names)}
@@ -363,6 +502,7 @@ def train_run(
         use_lora=run_spec.use_lora,
         lora_cfg=lcfg,
         gradient_checkpointing=grad_ckpt,
+        model_cfg=mcfg,
     )
 
     logger.info("Tokenizing train split: %d samples", len(train_split))
@@ -381,28 +521,44 @@ def train_run(
             remove_columns=val_split.column_names,
         )
 
+    compute_metrics = None
+    if tokenized_val is not None:
+        compute_metrics = _make_compute_metrics(id2label)
+
+    metric_for_best_model, greater_is_better = _metric_settings(tcfg, tokenized_val is not None)
+
     base_bs = int(tcfg["batch_size"])
     base_acc = int(tcfg["grad_accum"])
-    effective = base_bs * base_acc
+    effective = max(1, base_bs * base_acc)
     candidates = [base_bs, max(1, base_bs // 2), max(1, base_bs // 4)]
 
     resolved = {
         "run": run_spec.run_name,
         "base_model": run_spec.base_model,
         "use_lora": run_spec.use_lora,
-        "dataset": dataset_name,
-        "seed": seed,
-        "max_length": max_length,
-        "label_all_tokens": label_all_tokens,
-        "num_labels": len(label_names),
+        "dataset": str(dataset_name),
+        "seed": int(seed),
+        "max_length": int(max_length),
+        "label_all_tokens": bool(label_all_tokens),
+        "num_labels": int(len(label_names)),
         "label_names": label_names,
-        "fp16": fp16,
-        "tf32": tf32,
-        "gradient_checkpointing": grad_ckpt,
+        "fp16": bool(fp16),
+        "tf32": bool(tf32),
+        "gradient_checkpointing": bool(grad_ckpt),
         "max_train_samples": max_train_samples,
         "max_eval_samples": max_eval_samples,
-        "effective_batch": effective,
+        "effective_batch": int(effective),
+        "lr_effective": float(tcfg["lr"]),
+        "label_smoothing": float(tcfg["label_smoothing"]),
+        "lr_scheduler": str(tcfg["lr_scheduler"]),
+        "max_grad_norm": float(tcfg["max_grad_norm"]),
+        "metric_for_best_model": str(metric_for_best_model),
+        "greater_is_better": bool(greater_is_better),
+        "early_stopping_patience": int(tcfg.get("early_stopping_patience", 0)),
+        "early_stopping_threshold": float(tcfg.get("early_stopping_threshold", 0.0)),
+        "group_by_length": bool(tcfg.get("group_by_length", False)),
         "lora": lcfg if run_spec.use_lora else {"enabled": False},
+        "model_cfg": mcfg,
     }
 
     last_err: Optional[BaseException] = None
@@ -430,6 +586,12 @@ def train_run(
                 logging_steps=logging_steps,
                 save_total_limit=save_total_limit,
                 num_workers=num_workers,
+                seed=seed,
+                early_stopping_patience=int(tcfg.get("early_stopping_patience", 0)),
+                early_stopping_threshold=float(tcfg.get("early_stopping_threshold", 0.0)),
+                compute_metrics=compute_metrics,
+                metric_for_best_model=metric_for_best_model,
+                greater_is_better=greater_is_better,
                 logger=logger,
             )
             resolved.update(

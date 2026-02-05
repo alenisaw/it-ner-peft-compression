@@ -1,4 +1,4 @@
-# IT-Domain Named Entity Recognition (NER)
+# IT-Domain Named Entity Recognition (NER): Practical Compression for Real-World Inference
 
 This repository presents an analysis of **quality, efficiency, and deployment trade-offs**
 between different adaptation strategies for **IT-domain Named Entity Recognition (NER)**.
