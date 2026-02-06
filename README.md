@@ -1,143 +1,141 @@
-# IT-Domain Named Entity Recognition (NER): Practical Compression for Real-World Inference
+# IT-Domain Named Entity Recognition with PEFT and Compression
 
-This repository presents an analysis of **quality, efficiency, and deployment trade-offs**
-between different adaptation strategies for **IT-domain Named Entity Recognition (NER)**.
+This repository provides a reproducible, model-centric study of IT-domain NER.
+It implements dataset relabeling, augmentation, model training, evaluation, error analysis,
+and ONNX export/benchmarking for deployment-oriented trade-offs.
+All results below are taken directly from the stored artifacts in `data/` and `models/`.
 
-All models compared here were trained beforehand.  
-The focus is on **comparative evaluation and practical implications**, not on training procedures.
+## Scope and Methodology
 
----
+The pipeline covers:
+- Data preparation with label remapping, oversampling, and weak supervision.
+- Three model variants: full BERT fine-tuning, LoRA (PEFT) on BERT, and DistilBERT.
+- Entity-level evaluation using seqeval on a held-out test set.
+- Error analysis with confusion summaries.
+- ONNX export and latency benchmarking for deployment assessment.
 
-## Evaluated Models
+## Dataset and Labeling
 
-| Run name     | Backbone              | Adaptation strategy            |
-|--------------|-----------------------|--------------------------------|
-| bert_full    | bert-base-cased       | Full fine-tuning               |
-| bert_lora    | bert-base-cased       | LoRA (PEFT), merged weights    |
-| distil_full  | distilbert-base-cased | Architectural compression      |
+Source dataset: `mrm8488/stackoverflow-ner`.
 
----
+Label space was collapsed into a 5-entity BIO schema:
+`ERROR`, `HARDWARE`, `OS`, `SOFTWARE`, `VERSION` (plus `O`).
 
-## Evaluation Metrics
+Data augmentation:
+- Oversampling factor: 1.5 with rare-entity boost 0.5.
+- Training size before oversampling: 9,263 examples.
+- After oversampling: 11,701 examples (including a rare-entity boost for ERROR and OS).
+- Weakly labeled augmentation: 3,510 examples from `bigcode/the-stack-github-issues`
+  (100k sampled, filtered, and mixed at a 0.30 ratio).
+- Final training size: 15,211 examples.
 
-Evaluation is performed using **entity-level NER metrics**:
+Dataset statistics (after augmentation):
 
-- Precision  
-- Recall  
-- F1-score  
+| Split | Samples | Mean tokens | Median tokens |
+|-------|---------|-------------|---------------|
+| Train | 15,211  | 40.18       | 18            |
+| Val   | 2,936   | 14.75       | 13            |
+| Test  | 3,108   | 14.65       | 13            |
 
-Metrics are computed at the entity level following standard sequence-labeling evaluation practice.
+## Models
 
----
+| Run        | Backbone              | Adaptation |
+|------------|-----------------------|------------|
+| bert_full  | bert-base-cased       | Full fine-tuning |
+| bert_lora  | bert-base-cased       | LoRA (PEFT) |
+| distil_full| distilbert-base-cased | Full fine-tuning |
 
-## Quality Comparison
+LoRA configuration (from `models/bert_lora/config_resolved.json`):
+- r=16, alpha=32, dropout=0.05
+- target modules: query, key, value, dense
+- classifier head saved with adapters
 
-### Overall Entity-Level Performance
+Training configuration (common settings):
+- Max length: 128
+- Epochs: 6
+- Batch size: 16
+- Optimizer: AdamW
+- Learning rate: 2e-5 (BERT/DistilBERT), 1e-4 (LoRA)
+- Scheduler: cosine
+- Label smoothing: 0.05
+- Gradient checkpointing: enabled
+- Mixed precision: fp16 with tf32 enabled
+- Early stopping: patience 1
 
-| Model        | Precision | Recall | F1-score |
-|--------------|-----------|--------|----------|
-| bert_full    | 0.672     | 0.743  | **0.706** |
-| bert_lora    | 0.637     | 0.776  | 0.699 |
-| distil_full  | 0.454     | 0.297  | 0.359 |
+## Evaluation Results (Entity-Level, Test Set)
 
-**Observations:**
+Overall metrics from `models/*/metrics.json`:
 
-- **bert_full** achieves the highest F1-score and defines the quality upper bound.
-- **bert_lora** closely matches full fine-tuning, trading slightly lower precision for higher recall.
-- **distil_full** shows a substantial recall drop, leading to noticeably lower overall quality.
+| Model       | Precision | Recall | F1    | Accuracy |
+|-------------|-----------|--------|-------|----------|
+| bert_full   | 0.748     | 0.733  | 0.740 | 0.988    |
+| bert_lora   | 0.694     | 0.755  | 0.723 | 0.987    |
+| distil_full | 0.754     | 0.683  | 0.717 | 0.987    |
 
----
+Per-entity F1 (entity counts from test set):
 
-## Efficiency Analysis
+| Entity   | Count | bert_full | bert_lora | distil_full |
+|----------|-------|-----------|-----------|-------------|
+| ERROR    | 18    | 0.188     | 0.065     | 0.069       |
+| HARDWARE | 53    | 0.720     | 0.693     | 0.660       |
+| OS       | 66    | 0.843     | 0.843     | 0.841       |
+| SOFTWARE | 838   | 0.733     | 0.714     | 0.705       |
+| VERSION  | 111   | 0.818     | 0.827     | 0.840       |
 
-### Trainable Parameters
+Key outcome:
+- Full BERT yields the highest overall F1.
+- LoRA preserves recall and remains close to full fine-tuning while updating fewer parameters.
+- DistilBERT is competitive but shows lower recall at comparable precision.
 
-| Model        | Trainable parameters | Relative scale |
-|--------------|----------------------|----------------|
-| bert_full    | 100%                 | High           |
-| bert_lora    | ~1–5%                | Very low       |
-| distil_full  | ~60% of BERT         | Medium         |
+## Model Size and ONNX Inference
 
-**Key insight:**  
-LoRA achieves near-baseline quality while updating only a small fraction of parameters, whereas DistilBERT reduces capacity through architectural changes.
+Saved model sizes (safetensors):
+- `models/bert_full/model.safetensors`: 410.97 MB
+- `models/distil_full/model.safetensors`: 248.73 MB
+- `models/bert_lora/adapter_model.safetensors`: 10.18 MB
 
----
+ONNX export artifacts (from `models/onnx/*/bench.json`):
+- BERT FP16 ONNX: 1.56 MB
+- LoRA FP16 ONNX: 1.56 MB
+- DistilBERT FP16 ONNX: 0.79 MB
 
-### Model Size
+CPU latency (ORT FP32, seq_len=128, avg over 200 runs):
 
-- INT8 quantization significantly reduces model size across all variants.
-- Quantized models are suitable for **CPU-only deployment**.
-- Size reduction is most impactful for full BERT, while also benefiting LoRA and DistilBERT models.
+| Model       | Avg latency (ms) |
+|-------------|------------------|
+| bert_full   | 43.32            |
+| bert_lora   | 60.78            |
+| distil_full | 30.37            |
 
----
+Note: ONNX benchmarks used `CPUExecutionProvider` because GPU providers were not available
+in the benchmark environment captured in the repository.
 
-## Inference Speed (CPU)
+## Error Analysis (Summary)
 
-Latency is evaluated under:
+Dominant confusions from `models/bert_full/errors.json`:
+- SOFTWARE -> O (232 cases)
+- O -> SOFTWARE (176 cases)
+- ERROR -> O (33 cases)
+- VERSION -> O (20 cases)
 
-- PyTorch FP32  
-- ONNX FP32  
-- ONNX INT8  
+This indicates that boundary and omission errors are most frequent, especially for SOFTWARE
+entities, while rare classes (ERROR) remain challenging.
 
-**General trends:**
+## Code Structure
 
-- ONNX inference consistently outperforms PyTorch execution.
-- INT8 quantization provides additional latency improvements.
-- **DistilBERT** achieves the lowest latency due to reduced depth.
-- **LoRA-based BERT** remains competitive while retaining full backbone capacity.
+Key modules:
+- `src/data.py`: dataset relabeling, oversampling, weak labeling, and statistics export
+- `src/train.py`: training for BERT, LoRA, and DistilBERT
+- `src/eval.py`: evaluation, per-entity metrics, and confusion summaries
+- `src/export.py`: ONNX export and latency benchmarking
+- `src/distill.py`: knowledge distillation trainer (student DistilBERT)
+- `src/prompting.py`: LLM prompting baseline (Ollama-based)
+- `src/robustness.py`: token-level perturbations for robustness checks
 
----
+## Conclusions
 
-## Trade-off Analysis
-
-### Full Fine-Tuning vs LoRA
-
-- Full fine-tuning yields the best absolute quality.
-- LoRA achieves **near-baseline performance** with:
-  - dramatically fewer trainable parameters
-  - lower memory requirements
-- LoRA is preferable when resources are constrained or multiple domain adaptations are needed.
-
----
-
-### LoRA vs Distillation
-
-- LoRA preserves the representational capacity of the full backbone.
-- Distillation reduces size and depth at the cost of expressiveness.
-- DistilBERT performs well under strict latency constraints but struggles with rare or complex entities.
-- LoRA offers a more balanced quality–efficiency trade-off when backbone reuse is acceptable.
-
----
-
-### FP32 vs INT8
-
-- INT8 quantization:
-  - substantially reduces model size
-  - improves CPU inference speed
-  - introduces only minor degradation for NER
-- INT8 ONNX models are suitable for practical production scenarios.
-
----
-
-## Qualitative Observations
-
-Common error patterns across models include:
-
-- Boundary errors in multi-token entities  
-  (e.g., *Windows 11*, *Visual Studio Code*)
-- Confusion between closely related entity types:
-  - SOFTWARE vs OS
-  - SOFTWARE vs VERSION
-- Rare entities are more sensitive to compression than frequent ones.
-
----
-
-## Final Conclusions
-
-- **bert_full** defines the upper bound for quality.
-- **bert_lora** provides the best balance between performance and efficiency.
-- **distil_full** is appropriate for scenarios with strict latency or size constraints.
-- Combining parameter-efficient adaptation with post-training quantization enables practical CPU deployment.
-
-Overall, **parameter-efficient fine-tuning combined with lightweight compression**
-is an effective strategy for domain-specific NER in IT support scenarios.
+The results show that parameter-efficient fine-tuning (LoRA) retains most of the
+full fine-tuning quality while substantially reducing adapter size, and that
+DistilBERT offers faster CPU inference with a modest drop in recall.
+The provided artifacts include metrics, logs, and ONNX exports suitable for
+reproducible evaluation and deployment-oriented analysis.
