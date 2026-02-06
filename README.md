@@ -139,3 +139,15 @@ full fine-tuning quality while substantially reducing adapter size, and that
 DistilBERT offers faster CPU inference with a modest drop in recall.
 The provided artifacts include metrics, logs, and ONNX exports suitable for
 reproducible evaluation and deployment-oriented analysis.
+
+## Demo 
+
+Run the interactive showcase:
+
+```bash
+streamlit run streamlit_app.py
+```
+
+Notes:
+- The demo reads model runs from `models/` (excluding `models/onnx`).
+- It uses `data/processed_meta.json` for label names; run dataset preparation if missing.

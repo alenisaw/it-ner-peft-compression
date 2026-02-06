@@ -10,3 +10,4 @@ evaluate~=0.4.6
 transformers~=4.57.1
 peft~=0.18.1
 PyYAML~=6.0.3
+streamlit~=1.37.0
